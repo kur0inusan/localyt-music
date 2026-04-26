@@ -22,6 +22,20 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        Thread {
+            try {
+                YoutubeDL.getInstance().init(this)
+                FFmpeg.getInstance().init(this) // 念のため残すが、YoutubeDL.initが主役
+                YoutubeDL.getInstance().updateYoutubeDL(this, YoutubeDL.UpdateChannel._STABLE)
+
+                Log.d(TAG, "Initialization complete")
+            } catch (e: Exception) {
+                Log.e(TAG, "Initialization failed", e)
+            }
+        }.start()
+
+
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             CHANNEL
@@ -55,9 +69,6 @@ class MainActivity : FlutterActivity() {
     private fun downloadYT(url: String, path: String, result: MethodChannel.Result) {
         Thread {
             try{
-                YoutubeDL.getInstance().init(this)
-                FFmpeg.getInstance().init(this)
-
                 val dir = File(
                     android.os.Environment.getExternalStoragePublicDirectory(
                         android.os.Environment.DIRECTORY_DOWNLOADS
@@ -68,7 +79,7 @@ class MainActivity : FlutterActivity() {
                     dir.mkdirs()
                 }
                 val request = YoutubeDLRequest(url);
-                request.addOption("-x")
+                request.addOption("--extract-audio")
                 request.addOption("--audio-format","mp3")
                 request.addOption("--audio-quality", "0")
                 request.addOption("-o", "${dir.absolutePath}/%(title)s.%(ext)s")
@@ -77,14 +88,17 @@ class MainActivity : FlutterActivity() {
                 request.addOption("--yes-playlist")
                 request.addOption("--extractor-args", "youtube:player_client=android")
                 request.addOption("--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                val archiveFile = File(dir.absolutePath, "archive.txt")
-                request.addOption("--download-archive", archiveFile.absolutePath)
+                request.addOption("--download-archive", dir.absolutePath+"/downloaded.txt")
+                request.addOption("--no-update")
+                request.addOption("--no-warnings")
+
                 YoutubeDL.getInstance().execute(request) { progress, etaInSeconds, line ->
                     Log.d(TAG, "progress: $progress, eta: $etaInSeconds")
                     Handler(Looper.getMainLooper()).post {
                         eventSink?.success(progress)
                     }
                 }
+
                 Handler(Looper.getMainLooper()).post {
                     result.success(0)
                 }

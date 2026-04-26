@@ -12,7 +12,7 @@ class TestDownloadScreen extends StatefulWidget {
 class _TestDownloadScreenState extends State<TestDownloadScreen> {
   final TextEditingController _urlController = TextEditingController(
     // テスト用の初期値（適宜変更してください）
-    text: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    text: 'https://music.youtube.com/watch?v=pS31mdpYuh4&si=VQ5j2NtvwD6eBjVC',
   );
 
   double _progress = 0.0;
