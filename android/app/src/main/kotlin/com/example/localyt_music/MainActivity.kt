@@ -85,6 +85,7 @@ class MainActivity : FlutterActivity() {
                 request.addOption("--no-update")
                 request.addOption("--no-warnings")
                 request.addOption("--windows-filenames")
+                request.addOption("--write-thumbnail")
 
                 YoutubeDL.getInstance().execute(request) { progress, etaInSeconds, line ->
                     Log.d(TAG, "progress: $progress, eta: $etaInSeconds")
@@ -94,20 +95,45 @@ class MainActivity : FlutterActivity() {
                 }
 
                 val downloadedFiles = dir.listFiles { file ->
-                    file.extension != "txt" && file.extension != "mp3"
+                    val ext = file.extension.lowercase()
+                    ext != "txt" && ext != "mp3" && ext != "jpg" && ext != "png" && ext != "webp"
                 }
 
                 downloadedFiles?.forEach { originalFile ->
+//                    print(originalFile.name)
+//                    print(originalFile.nameWithoutExtension)
+
+                    var thumbnailFile = File(dir, "${originalFile.nameWithoutExtension}.webp")
+                    if (!thumbnailFile.exists()) {
+                        // webpがない場合はjpgやpngを探す
+                        val altThumb = File(dir, "${originalFile.nameWithoutExtension}.jpg")
+                        if (altThumb.exists()) thumbnailFile = altThumb
+                    }
+
                     val mp3File = File(dir, "${originalFile.nameWithoutExtension}.mp3")
 
-                    val cmd = "-i \"${originalFile.absolutePath}\" -vn -ab 320k -y \"${mp3File.absolutePath}\""
+                    var cmd = "-i \"${originalFile.absolutePath}\""
+                    if (thumbnailFile.exists()) {
+                        cmd += " -i \"${thumbnailFile.absolutePath}\""
+                    }
+                    cmd += " -vn -ab 320k -y"
+                    cmd += " -map 0:a"
+                    if (thumbnailFile.exists()) {
+                        cmd += " -map 1:v"
+                        cmd += " -c:v mjpeg"
+                        cmd += " -disposition:v attached_pic"
+                    }
 
+                    cmd += " \"${mp3File.absolutePath}\""
                     Log.d(TAG, "Starting 16KB-compliant FFmpeg-kit conversion: $cmd")
 
                     val session = FFmpegKit.execute(cmd)
 
                     if (ReturnCode.isSuccess(session.returnCode)) {
                         originalFile.delete()
+                        if (thumbnailFile.exists()) {
+                            thumbnailFile.delete()
+                        }
                         Log.d(TAG, "Conversion successful, deleted original: ${originalFile.name}")
                     } else {
                         Log.e(TAG, "FFmpeg-kit conversion failed: ${session.returnCode}")

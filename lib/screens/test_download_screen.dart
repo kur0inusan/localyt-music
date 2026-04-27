@@ -12,7 +12,7 @@ class TestDownloadScreen extends StatefulWidget {
 class _TestDownloadScreenState extends State<TestDownloadScreen> {
   final TextEditingController _urlController = TextEditingController(
     // テスト用の初期値（適宜変更してください）
-    text: 'https://music.youtube.com/watch?v=pS31mdpYuh4&si=VQ5j2NtvwD6eBjVC',
+    text: 'https://www.youtube.com/playlist?list=PLbHeNCKxUSbA-IZSGvmSWWAKvvGbgrLeV',
   );
 
   double _progress = 0.0;
@@ -75,14 +75,6 @@ class _TestDownloadScreenState extends State<TestDownloadScreen> {
       // Serviceを呼び出してダウンロード開始
       // 第2引数のpathはKotlin側で "/localyt_music/{path}/youtubedl-android/" となります
       await YTDLService.startDownload(_urlController.text, 'test_folder');
-
-      // executeが完了したら（Kotlin側からresult.successが返ってきたら）
-      if (mounted && _progress < 100.0) {
-        setState(() {
-          _statusText = 'ダウンロード処理は終了しましたが、100%に到達していません';
-          _isDownloading = false;
-        });
-      }
     } catch (e) {
       if (mounted) {
         setState(() {
