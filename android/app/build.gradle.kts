@@ -52,6 +52,6 @@ val youtubedlAndroid = "0.18.1"
 
 dependencies {
     implementation("io.github.junkfood02.youtubedl-android:library:$youtubedlAndroid")
-    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:$youtubedlAndroid") // 音声変換用
-    implementation("io.github.junkfood02.youtubedl-android:aria2c:${youtubedlAndroid}")
+    implementation("com.moizhassan.ffmpeg:ffmpeg-kit-16kb:6.1.1")
+    implementation("com.arthenica:smart-exception-java:0.2.1")
 }

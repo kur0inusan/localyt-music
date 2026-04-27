@@ -1,13 +1,12 @@
 package com.example.localyt_music
 import android.content.ContentValues.TAG
-import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import androidx.annotation.NonNull
-import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.youtubedl_android.YoutubeDLException
 import com.yausername.youtubedl_android.YoutubeDLRequest
+import com.arthenica.ffmpegkit.FFmpegKit
+import com.arthenica.ffmpegkit.ReturnCode
 import io.flutter.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -26,7 +25,6 @@ class MainActivity : FlutterActivity() {
         Thread {
             try {
                 YoutubeDL.getInstance().init(this)
-                FFmpeg.getInstance().init(this) // 念のため残すが、YoutubeDL.initが主役
                 YoutubeDL.getInstance().updateYoutubeDL(this, YoutubeDL.UpdateChannel._STABLE)
 
                 Log.d(TAG, "Initialization complete")
@@ -79,23 +77,40 @@ class MainActivity : FlutterActivity() {
                     dir.mkdirs()
                 }
                 val request = YoutubeDLRequest(url);
-                request.addOption("--extract-audio")
-                request.addOption("--audio-format","mp3")
-                request.addOption("--audio-quality", "0")
                 request.addOption("-o", "${dir.absolutePath}/%(title)s.%(ext)s")
-                request.addOption("--embed-thumbnail")
-                request.addOption("--embed-metadata")
                 request.addOption("--yes-playlist")
                 request.addOption("--extractor-args", "youtube:player_client=android")
                 request.addOption("--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                 request.addOption("--download-archive", dir.absolutePath+"/downloaded.txt")
                 request.addOption("--no-update")
                 request.addOption("--no-warnings")
+                request.addOption("--windows-filenames")
 
                 YoutubeDL.getInstance().execute(request) { progress, etaInSeconds, line ->
                     Log.d(TAG, "progress: $progress, eta: $etaInSeconds")
                     Handler(Looper.getMainLooper()).post {
                         eventSink?.success(progress)
+                    }
+                }
+
+                val downloadedFiles = dir.listFiles { file ->
+                    file.extension != "txt" && file.extension != "mp3"
+                }
+
+                downloadedFiles?.forEach { originalFile ->
+                    val mp3File = File(dir, "${originalFile.nameWithoutExtension}.mp3")
+
+                    val cmd = "-i \"${originalFile.absolutePath}\" -vn -ab 320k -y \"${mp3File.absolutePath}\""
+
+                    Log.d(TAG, "Starting 16KB-compliant FFmpeg-kit conversion: $cmd")
+
+                    val session = FFmpegKit.execute(cmd)
+
+                    if (ReturnCode.isSuccess(session.returnCode)) {
+                        originalFile.delete()
+                        Log.d(TAG, "Conversion successful, deleted original: ${originalFile.name}")
+                    } else {
+                        Log.e(TAG, "FFmpeg-kit conversion failed: ${session.returnCode}")
                     }
                 }
 
