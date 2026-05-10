@@ -30,7 +30,9 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
           for (String playlistName in _playlistNames)
             ListTile(
               title: Text(playlistName),
+              onTap: (){
 
+              },
             )
         ],
       ),
