@@ -70,8 +70,7 @@ class MainActivity : FlutterActivity() {
                 val dir = File(
                     android.os.Environment.getExternalStoragePublicDirectory(
                         android.os.Environment.DIRECTORY_DOWNLOADS
-                    ).absolutePath + "/localyt_music/$path",
-                    "youtubedl-android"
+                    ).absolutePath + "/localyt_music/$path"
                 )
                 if (!dir.exists()) {
                     dir.mkdirs()
