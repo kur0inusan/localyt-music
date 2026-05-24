@@ -26,4 +26,10 @@ class PlaylistManager {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     return prefs.getString(playlistName) ?? '';
   }
+
+  Future<void> savePlaylistURL(String playlistName, String url) async {
+    if (playlistName.isEmpty || url.isEmpty) return;
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString(playlistName, url);
+  }
 }
