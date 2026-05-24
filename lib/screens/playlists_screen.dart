@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:localyt_music/services/file_service.dart';
+import 'package:localyt_music/screens/playlist_screen.dart';
+import 'package:localyt_music/screens/add_playlist_screen.dart';
 
 class PlaylistsScreen extends StatefulWidget {
   const PlaylistsScreen({Key? key}) : super(key: key);
@@ -31,7 +33,10 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
             ListTile(
               title: Text(playlistName),
               onTap: (){
-
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => PlaylistScreen(playlistname: playlistName)),
+                );
               },
             )
         ],
@@ -40,10 +45,10 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
         // 追加ボタン
         child: const Icon(Icons.add),
         onPressed: (){
-          // Navigator.push(
-          //   context,
-          //   MaterialPageRoute(builder: (context) => NewPlaylistScreen()),
-          // );
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => AddPlaylistScreen()),
+          );
         },
       ),
     );
