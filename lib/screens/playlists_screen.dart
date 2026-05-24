@@ -44,11 +44,14 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
       floatingActionButton: FloatingActionButton(
         // 追加ボタン
         child: const Icon(Icons.add),
-        onPressed: (){
-          Navigator.push(
+        onPressed: () async {
+          final result = await Navigator.push(
             context,
-            MaterialPageRoute(builder: (context) => AddPlaylistScreen()),
+            MaterialPageRoute(builder: (context) => const AddPlaylistScreen()),
           );
+          if (result == true) {
+            _loadPlaylists();
+          }
         },
       ),
     );
