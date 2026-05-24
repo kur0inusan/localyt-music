@@ -131,7 +131,7 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
       canPop: !_isDownloading, // Prevent popping during download
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Add YouTube Playlist'),
+          title: const Text('プレイリストを追加'),
         ),
         body: SingleChildScrollView(
           padding: const EdgeInsets.all(20.0),
@@ -142,7 +142,7 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
               children: [
                 const SizedBox(height: 10),
                 const Text(
-                  'Download a YouTube playlist to your local device. The tracks will be automatically converted to MP3 with high-quality (320kbps) and include album art.',
+                  'プレイリストをローカルにダウンロードします',
                   style: TextStyle(color: Colors.grey, fontSize: 13),
                 ),
                 const SizedBox(height: 30),
@@ -152,8 +152,8 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
                   controller: _nameController,
                   enabled: !_isDownloading,
                   decoration: const InputDecoration(
-                    labelText: 'Local Playlist Name (Folder Name)',
-                    hintText: 'e.g. My Favorites',
+                    labelText: 'プレイリスト名 (表示名)',
+                    hintText: '勉強用',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.folder),
                   ),
@@ -161,12 +161,11 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
                 ),
                 const SizedBox(height: 20),
 
-                // Playlist URL Field
                 TextFormField(
                   controller: _urlController,
                   enabled: !_isDownloading,
                   decoration: const InputDecoration(
-                    labelText: 'YouTube Playlist URL',
+                    labelText: 'プレイリストURL',
                     hintText: 'https://www.youtube.com/playlist?list=...',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.link),
