@@ -32,4 +32,10 @@ class PlaylistManager {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setString(playlistName, url);
   }
+
+  Future<void> deletePlaylistURL(String playlistName) async {
+    if (playlistName.isEmpty) return;
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.remove(playlistName);
+  }
 }
