@@ -28,15 +28,15 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
       (progress) {
         setState(() {
           _progress = progress;
-          _statusText = 'Downloading... ${progress.toStringAsFixed(1)}%';
+          _statusText = 'ダウンロード中... ${progress.toStringAsFixed(1)}%';
         });
       },
       onError: (error) {
         setState(() {
           _isDownloading = false;
-          _statusText = 'Error occurred';
+          _statusText = 'エラー';
         });
-        _showSnackBar('Progress stream error: $error');
+        _showSnackBar('エラー: $error');
       },
     );
   }
@@ -59,11 +59,11 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
   // Validate directory name (avoid invalid path characters)
   String? _validatePlaylistName(String? value) {
     if (value == null || value.trim().isEmpty) {
-      return 'Please enter a playlist name';
+      return 'プレイリスト名を入力してください';
     }
     final invalidChars = RegExp(r'[\\/:*?"<>|]');
     if (invalidChars.hasMatch(value)) {
-      return 'Name cannot contain invalid characters: \\ / : * ? " < > |';
+      return '名前にこれらの文字は使用できません: \\ / : * ? " < > |';
     }
     return null;
   }
@@ -71,13 +71,13 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
   // Basic URL validation (checking for youtube link)
   String? _validateUrl(String? value) {
     if (value == null || value.trim().isEmpty) {
-      return 'Please enter a playlist URL';
+      return 'プレイリストのURLを入力してください';
     }
     if (!value.contains('youtube.com') && !value.contains('youtu.be')) {
-      return 'Please enter a valid YouTube link';
+      return 'Youtubeのリンクを入力してください';
     }
     if (!value.contains('list=')) {
-      return 'Please provide a playlist URL (must contain list= parameter)';
+      return 'プレイリストのURLを入力してください';
     }
     return null;
   }
