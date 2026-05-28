@@ -39,3 +39,34 @@ class PlaylistsManager {
     await prefs.remove(playlistName);
   }
 }
+
+class PlaylistManager {
+  String playlistName;
+
+  PlaylistManager(this.playlistName){
+    if (playlistName == '') {
+      Exception('Playlist name is empty');
+    }
+  }
+
+  Future<List<String>> getPlaylistSongs(String playlistName) async {
+    const String storagePath = '/storage/emulated/0/Download/localyt_music';
+    final Directory dir = Directory(storagePath);
+    if (!await dir.exists()) return [];
+    try {
+      final Directory playlistDir = Directory(p.join(storagePath, playlistName));
+      if (!await playlistDir.exists()) return [];
+      print(playlistDir.path);
+      List<String> songNames = playlistDir
+          .listSync()
+          .whereType<File>()
+          .where((f) => p.extension(f.path).toLowerCase() == '.mp3')
+          .map((f) => p.basenameWithoutExtension(f.path))
+          .toList();
+      return songNames;
+    } catch (e) {
+      print('error: $e');
+      return [];
+    }
+  }
+}
