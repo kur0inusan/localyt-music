@@ -65,6 +65,13 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
     if (invalidChars.hasMatch(value)) {
       return '名前にこれらの文字は使用できません: \\ / : * ? " < > |';
     }
+    if (value.length > 30) {
+      return '30文字以内にしてください';
+    }
+    PlaylistManager playlistManager = PlaylistManager();
+    if (playlistManager.getPlayListURL(value) != '') {
+      return '既に存在するプレイリスト名です';
+    }
     return null;
   }
 
