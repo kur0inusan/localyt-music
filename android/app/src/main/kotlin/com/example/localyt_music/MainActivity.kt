@@ -122,17 +122,19 @@ class MainActivity : FlutterActivity() {
                 Handler(Looper.getMainLooper()).post {
                     eventSink?.success(0)
                 }
-                val index = 0
+                var index = 0
+                var progress = 0.toFloat()
                 for (playlistURL in playlistURLs) {
                     downloadSingleYT(playlistURL, path)
-                    val progress = (index.toFloat() / playlistURLs.size) * 100
+                    progress = (index.toFloat() / playlistURLs.size) * 100
+                    index++
                     Handler(Looper.getMainLooper()).post {
                         eventSink?.success(progress)
                     }
                 }
-
                 Handler(Looper.getMainLooper()).post {
                     result.success(0)
+                    eventSink?.success(100)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Playlist download failed", e)
