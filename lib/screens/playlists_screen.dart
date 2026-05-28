@@ -9,7 +9,7 @@ class PlaylistsScreen extends StatefulWidget {
   State<PlaylistsScreen> createState() => _PlaylistsScreenState();
 }
 class _PlaylistsScreenState extends State<PlaylistsScreen> {
-  final PlaylistManager _playlistManager = PlaylistManager();
+  final PlaylistsManager _playlistManager = PlaylistsManager();
   List<String> _playlistNames = [];
   void _loadPlaylists() async {
     List<String> playlistNames = await _playlistManager.getAllPlaylistName();

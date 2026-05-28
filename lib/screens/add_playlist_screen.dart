@@ -13,7 +13,7 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _urlController = TextEditingController();
-  final PlaylistManager _playlistManager = PlaylistManager();
+  final PlaylistsManager _playlistManager = PlaylistsManager();
 
   double _progress = 0.0;
   bool _isDownloading = false;
@@ -68,7 +68,7 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
     if (value.length > 30) {
       return '30文字以内にしてください';
     }
-    PlaylistManager playlistManager = PlaylistManager();
+    PlaylistsManager playlistManager = PlaylistsManager();
     if (playlistManager.getPlayListURL(value) != '') {
       return '既に存在するプレイリスト名です';
     }

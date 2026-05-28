@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as p;              // pubspec.yamlに追加必要
 
-class PlaylistManager {
+class PlaylistsManager {
   Future<List<String>> getAllPlaylistName() async {
     const String storagePath = '/storage/emulated/0/Download/localyt_music';
     final Directory dir = Directory(storagePath);
