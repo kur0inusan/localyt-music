@@ -95,30 +95,27 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
     setState(() {
       _isDownloading = true;
       _progress = 0.0;
-      _statusText = 'Initializing download...';
+      _statusText = 'ダウンロードを開始します...';
     });
 
     try {
-      // Start download process using the native platform service
       await YTDLService.startDownload(url, playlistName);
 
-      // Save playlist metadata (URL mapping) in shared preferences
       await _playlistManager.savePlaylistURL(playlistName, url);
 
       if (mounted) {
         setState(() {
           _isDownloading = false;
-          _statusText = 'Download Completed!';
+          _statusText = 'ダウンロード完了';
         });
-        _showSnackBar('Playlist added successfully!');
-        // Return true to indicate that a new playlist was added
+        _showSnackBar('プレイリストが追加されました');
         Navigator.pop(context, true);
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _isDownloading = false;
-          _statusText = 'Failed to download';
+          _statusText = 'ダウンロードに失敗しました';
         });
         _showSnackBar('Download error: $e');
       }
@@ -128,7 +125,7 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: !_isDownloading, // Prevent popping during download
+      canPop: !_isDownloading,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('プレイリストを追加'),
@@ -147,7 +144,6 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
                 ),
                 const SizedBox(height: 30),
                 
-                // Playlist Name Field
                 TextFormField(
                   controller: _nameController,
                   enabled: !_isDownloading,
@@ -174,7 +170,6 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
                 ),
                 const SizedBox(height: 30),
 
-                // Progress Indicator
                 if (_isDownloading || _progress > 0.0) ...[
                   LinearProgressIndicator(
                     value: _progress / 100.0,
@@ -189,7 +184,6 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
                   const SizedBox(height: 20),
                 ],
 
-                // Action Button
                 ElevatedButton.icon(
                   onPressed: _isDownloading ? null : _startDownloadAndSave,
                   icon: _isDownloading
@@ -202,7 +196,7 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
                           ),
                         )
                       : const Icon(Icons.download),
-                  label: Text(_isDownloading ? 'Downloading...' : 'Start Download & Add'),
+                  label: Text(_isDownloading ? 'ダウンロード中...' : 'ダウンロードして追加する'),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     textStyle: const TextStyle(fontSize: 16),
