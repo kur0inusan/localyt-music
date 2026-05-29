@@ -46,7 +46,12 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                       PlaylistEditScreen(playlistName: widget.playlistName),
                 ),
               );
-              if (result == true && context.mounted) {
+              if (!context.mounted) return;
+              if (result == 'updated') {
+                _loadPlaylistSongs();
+                return;
+              }
+              if (result == true) {
                 Navigator.pop(context, true);
               }
             },

@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:localyt_music/services/file_service.dart';
+import 'package:localyt_music/services/yt_dl_service.dart';
 
 class PlaylistEditScreen extends StatefulWidget {
   final String playlistName;
@@ -18,16 +21,40 @@ class _PlaylistEditScreenState extends State<PlaylistEditScreen> {
   String _playlistUrl = '';
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _isUpdating = false;
+  double _progress = 0.0;
+  String _statusText = '';
+  StreamSubscription? _progressSubscription;
 
   @override
   void initState() {
     super.initState();
     _nameController.text = widget.playlistName;
     _loadPlaylistInfo();
+    _progressSubscription = YTDLService.progressStream.listen(
+      (progress) {
+        if (!mounted) return;
+        if (!_isUpdating) return;
+        setState(() {
+          _progress = progress;
+          _statusText = '更新中... ${progress.toStringAsFixed(1)}%';
+        });
+      },
+      onError: (error) {
+        if (!mounted) return;
+        setState(() {
+          _isSaving = false;
+          _isUpdating = false;
+          _statusText = '更新に失敗しました';
+        });
+        _showSnackBar('更新エラー: $error');
+      },
+    );
   }
 
   @override
   void dispose() {
+    _progressSubscription?.cancel();
     _nameController.dispose();
     super.dispose();
   }
@@ -140,8 +167,39 @@ class _PlaylistEditScreenState extends State<PlaylistEditScreen> {
     }
   }
 
-  void _showUpdateNotImplemented() {
-    _showSnackBar('更新ロジックはまだ未実装です');
+  Future<void> _updatePlaylist() async {
+    if (_isSaving) return;
+    if (_playlistUrl.isEmpty) {
+      _showSnackBar('プレイリストURLが保存されていません');
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+      _isUpdating = true;
+      _progress = 0.0;
+      _statusText = '更新を開始します...';
+    });
+
+    try {
+      await YTDLService.startDownload(_playlistUrl, widget.playlistName);
+      if (!mounted) return;
+      setState(() {
+        _isSaving = false;
+        _isUpdating = false;
+        _statusText = '更新完了';
+      });
+      _showSnackBar('プレイリストを更新しました');
+      Navigator.pop(context, 'updated');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isSaving = false;
+        _isUpdating = false;
+        _statusText = '更新に失敗しました';
+      });
+      _showSnackBar('更新に失敗しました: $e');
+    }
   }
 
   @override
@@ -180,6 +238,19 @@ class _PlaylistEditScreenState extends State<PlaylistEditScreen> {
                       ),
                     ),
                     const SizedBox(height: 28),
+                    if (_isUpdating || _progress > 0.0) ...[
+                      LinearProgressIndicator(
+                        value: _progress / 100.0,
+                        minHeight: 8,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        _statusText,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 20),
+                    ],
                     ElevatedButton.icon(
                       onPressed: _isSaving ? null : _renamePlaylist,
                       icon: _isSaving
@@ -196,7 +267,7 @@ class _PlaylistEditScreenState extends State<PlaylistEditScreen> {
                     ),
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
-                      onPressed: _isSaving ? null : _showUpdateNotImplemented,
+                      onPressed: _isSaving ? null : _updatePlaylist,
                       icon: const Icon(Icons.sync),
                       label: const Text('更新'),
                       style: OutlinedButton.styleFrom(
