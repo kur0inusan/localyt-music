@@ -164,6 +164,7 @@ class MainActivity : FlutterActivity() {
         request.addOption("--no-warnings")
         request.addOption("--windows-filenames")
         request.addOption("--write-thumbnail")
+        request.addOption("--write-info-json")
 
         YoutubeDL.getInstance().execute(request) { progress, etaInSeconds, _ ->
             Log.d(TAG, "progress: $progress, eta: $etaInSeconds")
@@ -171,7 +172,7 @@ class MainActivity : FlutterActivity() {
 
         val downloadedFiles = dir.listFiles { file ->
             val ext = file.extension.lowercase()
-            ext != "txt" && ext != "mp3" && ext != "jpg" && ext != "png" && ext != "webp"
+            ext != "txt" && ext != "mp3" && ext != "jpg" && ext != "png" && ext != "webp" && ext != "json"
         }
 
         downloadedFiles?.forEach { originalFile ->
@@ -186,6 +187,20 @@ class MainActivity : FlutterActivity() {
             }
 
             val mp3File = File(dir, "${originalFile.nameWithoutExtension}.mp3")
+            val infoFile = File(dir, "${originalFile.nameWithoutExtension}.info.json")
+            val infoJson = if (infoFile.exists()) {
+                org.json.JSONObject(infoFile.readText())
+            } else {
+                null
+            }
+            val title = infoJson?.optString("title").orEmpty()
+            val artist = infoJson?.optString("artist").orEmpty()
+                .ifBlank { infoJson?.optString("uploader").orEmpty() }
+                .ifBlank { infoJson?.optString("channel").orEmpty() }
+
+            fun escapeMetadata(value: String): String {
+                return value.replace("\\", "\\\\").replace("\"", "\\\"")
+            }
 
             var cmd = "-i \"${originalFile.absolutePath}\""
             if (thumbnailFile.exists()) {
@@ -198,6 +213,13 @@ class MainActivity : FlutterActivity() {
                 cmd += " -c:v mjpeg"
                 cmd += " -disposition:v attached_pic"
             }
+            if (title.isNotBlank()) {
+                cmd += " -metadata title=\"${escapeMetadata(title)}\""
+            }
+            if (artist.isNotBlank()) {
+                cmd += " -metadata artist=\"${escapeMetadata(artist)}\""
+            }
+            cmd += " -metadata album=\"${escapeMetadata(path)}\""
 
             cmd += " \"${mp3File.absolutePath}\""
             Log.d(TAG, "Starting 16KB-compliant FFmpeg-kit conversion: $cmd")
@@ -208,6 +230,9 @@ class MainActivity : FlutterActivity() {
                 originalFile.delete()
                 if (thumbnailFile.exists()) {
                     thumbnailFile.delete()
+                }
+                if (infoFile.exists()) {
+                    infoFile.delete()
                 }
                 Log.d(TAG, "Conversion successful, deleted original: ${originalFile.name}")
             } else {
