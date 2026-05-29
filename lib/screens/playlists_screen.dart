@@ -4,15 +4,17 @@ import 'package:localyt_music/screens/playlist_screen.dart';
 import 'package:localyt_music/screens/add_playlist_screen.dart';
 
 class PlaylistsScreen extends StatefulWidget {
-  const PlaylistsScreen({Key? key}) : super(key: key);
+  const PlaylistsScreen({super.key});
   @override
   State<PlaylistsScreen> createState() => _PlaylistsScreenState();
 }
+
 class _PlaylistsScreenState extends State<PlaylistsScreen> {
   final PlaylistsManager _playlistManager = PlaylistsManager();
   List<String> _playlistNames = [];
   void _loadPlaylists() async {
     List<String> playlistNames = await _playlistManager.getAllPlaylistName();
+    if (!mounted) return;
     setState(() {
       _playlistNames = playlistNames;
     });
@@ -32,13 +34,19 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
           for (String playlistName in _playlistNames)
             ListTile(
               title: Text(playlistName),
-              onTap: (){
-                Navigator.push(
+              onTap: () async {
+                final result = await Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => PlaylistScreen(playlistname: playlistName)),
+                  MaterialPageRoute(
+                    builder: (context) =>
+                        PlaylistScreen(playlistName: playlistName),
+                  ),
                 );
+                if (result == true) {
+                  _loadPlaylists();
+                }
               },
-            )
+            ),
         ],
       ),
       floatingActionButton: FloatingActionButton(
