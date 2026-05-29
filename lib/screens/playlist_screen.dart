@@ -61,7 +61,13 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
       body: Column(
         children: <Widget>[
           for (String songName in _playlistSongs)
-            ListTile(title: Text(songName)),
+            ListTile(
+              title: Text(
+                songName,
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
+            ),
         ],
       ),
     );
