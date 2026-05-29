@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:localyt_music/models/playlist.dart';
 import 'package:localyt_music/services/file_service.dart';
 import 'package:localyt_music/screens/playlist_screen.dart';
 import 'package:localyt_music/screens/add_playlist_screen.dart';
@@ -11,12 +12,12 @@ class PlaylistsScreen extends StatefulWidget {
 
 class _PlaylistsScreenState extends State<PlaylistsScreen> {
   final PlaylistsManager _playlistManager = PlaylistsManager();
-  List<String> _playlistNames = [];
+  List<Playlist> _playlists = [];
   void _loadPlaylists() async {
-    List<String> playlistNames = await _playlistManager.getAllPlaylistName();
+    List<Playlist> playlists = await _playlistManager.getAllPlaylist();
     if (!mounted) return;
     setState(() {
-      _playlistNames = playlistNames;
+      _playlists = playlists;
     });
   }
 
@@ -31,15 +32,24 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
     return Scaffold(
       body: Column(
         children: [
-          for (String playlistName in _playlistNames)
+          for (Playlist playlist in _playlists)
             ListTile(
-              title: Text(playlistName),
+              title: Text(playlist.name),
+              subtitle: RichText(
+                text: TextSpan(
+                  style: DefaultTextStyle.of(context).style,
+                    children: [
+                      TextSpan(text: '♪ ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      TextSpan(text: '${playlist.songs}曲'),
+                    ]
+                ),
+              ),
               onTap: () async {
                 final result = await Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (context) =>
-                        PlaylistScreen(playlistName: playlistName),
+                        PlaylistScreen(playlistName: playlist.name),
                   ),
                 );
                 if (result == true) {

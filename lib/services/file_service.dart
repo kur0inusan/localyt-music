@@ -3,12 +3,13 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as p; // pubspec.yamlに追加必要
 import 'package:localyt_music/models/song.dart';
+import 'package:localyt_music/models/playlist.dart';
 
 class PlaylistsManager {
   static const String storagePath =
       '/storage/emulated/0/Download/localyt_music';
 
-  Future<List<String>> getAllPlaylistName() async {
+  Future<List<Playlist>> getAllPlaylist() async {
     final Directory dir = Directory(storagePath);
     if (!await dir.exists()) return [];
     try {
@@ -17,8 +18,13 @@ class PlaylistsManager {
           .whereType<Directory>()
           .map((d) => p.basename(d.path)) // pathパッケージで安全にフォルダ名を抽出
           .toList();
-
-      return folderNames;
+      List<Playlist> playlists = [];
+      for (String playlistName in folderNames) {
+        final List<Song> songs = await PlaylistManager(playlistName)
+            .getPlaylistSongs(playlistName);
+        playlists.add(Playlist(playlistName, songs.length));
+      }
+      return playlists;
     } catch (e) {
       print('error: $e');
       return [];
