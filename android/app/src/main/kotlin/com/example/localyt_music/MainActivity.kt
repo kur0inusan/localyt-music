@@ -1,5 +1,6 @@
 package com.example.localyt_music
 import android.content.ContentValues.TAG
+import android.media.MediaMetadataRetriever
 import android.os.Handler
 import android.os.Looper
 import com.yausername.youtubedl_android.YoutubeDL
@@ -43,6 +44,14 @@ class MainActivity : FlutterActivity() {
                     val path = call.argument<String>("path")
                     if (url != null && path != null) {
                         downloadPlaylist(url, path, result)
+                    } else {
+                        result.error("error", "error", null)
+                    }
+                }
+                "getAudioMetadata" -> {
+                    val filePath = call.argument<String>("path")
+                    if (filePath != null) {
+                        result.success(getAudioMetadata(filePath))
                     } else {
                         result.error("error", "error", null)
                     }
@@ -113,6 +122,23 @@ class MainActivity : FlutterActivity() {
             }
 
         return playlistURLs.toTypedArray()
+    }
+
+    private fun getAudioMetadata(filePath: String): Map<String, String> {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(filePath)
+            mapOf(
+                "title" to (retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE) ?: ""),
+                "album" to (retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM) ?: ""),
+                "artist" to (retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: "")
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read audio metadata", e)
+            emptyMap()
+        } finally {
+            retriever.release()
+        }
     }
 
     private fun downloadPlaylist(url: String, path: String, result: MethodChannel.Result) {

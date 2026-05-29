@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as p; // pubspec.yamlに追加必要
+import 'package:localyt_music/models/song.dart';
 
 class PlaylistsManager {
   static const String storagePath =
@@ -88,6 +90,10 @@ class PlaylistsManager {
 }
 
 class PlaylistManager {
+  static const MethodChannel _methodChannel = MethodChannel(
+    'com.kuroinusan.localyt_music/youtubedl',
+  );
+
   String playlistName;
 
   PlaylistManager(this.playlistName) {
@@ -96,7 +102,7 @@ class PlaylistManager {
     }
   }
 
-  Future<List<String>> getPlaylistSongs(String playlistName) async {
+  Future<List<Song>> getPlaylistSongs(String playlistName) async {
     const String storagePath = PlaylistsManager.storagePath;
     final Directory dir = Directory(storagePath);
     if (!await dir.exists()) return [];
@@ -106,13 +112,29 @@ class PlaylistManager {
       );
       if (!await playlistDir.exists()) return [];
       print(playlistDir.path);
-      List<String> songNames = playlistDir
+      List<File> songFiles = playlistDir
           .listSync()
           .whereType<File>()
           .where((f) => p.extension(f.path).toLowerCase() == '.mp3')
-          .map((f) => p.basenameWithoutExtension(f.path))
           .toList();
-      return songNames;
+      List<Song> songs = [];
+      for (File songFile in songFiles) {
+        final String songName = p.basenameWithoutExtension(songFile.path);
+        final metadata = await _methodChannel.invokeMapMethod<String, String>(
+          'getAudioMetadata',
+          {'path': songFile.path},
+        );
+        songs.add(
+          Song(
+            metadata?['title']?.isNotEmpty == true
+                ? metadata!['title']!
+                : songName,
+            metadata?['album'] ?? '',
+            metadata?['artist'] ?? '',
+          ),
+        );
+      }
+      return songs;
     } catch (e) {
       print('error: $e');
       return [];

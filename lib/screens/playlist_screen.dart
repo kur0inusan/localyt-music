@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:localyt_music/screens/playlist_edit_screen.dart';
 import 'package:localyt_music/services/file_service.dart';
+import 'package:localyt_music/models/song.dart';
 
 class PlaylistScreen extends StatefulWidget {
   final String playlistName;
@@ -11,7 +12,7 @@ class PlaylistScreen extends StatefulWidget {
 }
 
 class _PlaylistScreenState extends State<PlaylistScreen> {
-  List<String> _playlistSongs = [];
+  List<Song> _playlistSongs = [];
 
   @override
   void initState() {
@@ -21,7 +22,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
 
   void _loadPlaylistSongs() async {
     PlaylistManager playlistManager = PlaylistManager(widget.playlistName);
-    List<String> playlistSongs = await playlistManager.getPlaylistSongs(
+    List<Song> playlistSongs = await playlistManager.getPlaylistSongs(
       widget.playlistName,
     );
     if (!mounted) return;
@@ -60,10 +61,15 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
       ),
       body: Column(
         children: <Widget>[
-          for (String songName in _playlistSongs)
+          for (Song songName in _playlistSongs)
             ListTile(
               title: Text(
-                songName,
+                songName.title,
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
+              subtitle: Text(
+                '${songName.artist} - ${songName.albam}',
                 overflow: TextOverflow.ellipsis,
                 maxLines: 1,
               ),
