@@ -47,6 +47,13 @@ class PlaylistsManager {
     return playlistDir.exists();
   }
 
+  Future<bool> playlistNameExists(String playlistName) async {
+    if (playlistName.isEmpty) return false;
+    final bool hasDirectory = await playlistExists(playlistName);
+    final String savedUrl = await getPlayListURL(playlistName);
+    return hasDirectory || savedUrl.isNotEmpty;
+  }
+
   Future<void> renamePlaylist(String oldName, String newName) async {
     if (oldName.isEmpty || newName.isEmpty || oldName == newName) return;
 

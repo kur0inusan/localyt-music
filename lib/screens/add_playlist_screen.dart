@@ -51,9 +51,9 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
 
   void _showSnackBar(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   // Validate directory name (avoid invalid path characters)
@@ -67,10 +67,6 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
     }
     if (value.length > 30) {
       return '30文字以内にしてください';
-    }
-    PlaylistsManager playlistManager = PlaylistsManager();
-    if (playlistManager.getPlayListURL(value) != '') {
-      return '既に存在するプレイリスト名です';
     }
     return null;
   }
@@ -98,6 +94,11 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
 
     final String playlistName = _nameController.text.trim();
     final String url = _urlController.text.trim();
+
+    if (await _playlistManager.playlistNameExists(playlistName)) {
+      _showSnackBar('既に存在するプレイリスト名です');
+      return;
+    }
 
     setState(() {
       _isDownloading = true;
@@ -134,9 +135,7 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
     return PopScope(
       canPop: !_isDownloading,
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('プレイリストを追加'),
-        ),
+        appBar: AppBar(title: const Text('プレイリストを追加')),
         body: SingleChildScrollView(
           padding: const EdgeInsets.all(20.0),
           child: Form(
@@ -150,7 +149,7 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
                   style: TextStyle(color: Colors.grey, fontSize: 13),
                 ),
                 const SizedBox(height: 30),
-                
+
                 TextFormField(
                   controller: _nameController,
                   enabled: !_isDownloading,
