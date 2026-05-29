@@ -1,10 +1,12 @@
 import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:path/path.dart' as p;              // pubspec.yamlに追加必要
+import 'package:path/path.dart' as p; // pubspec.yamlに追加必要
 
 class PlaylistsManager {
+  static const String storagePath =
+      '/storage/emulated/0/Download/localyt_music';
+
   Future<List<String>> getAllPlaylistName() async {
-    const String storagePath = '/storage/emulated/0/Download/localyt_music';
     final Directory dir = Directory(storagePath);
     if (!await dir.exists()) return [];
     try {
@@ -38,23 +40,63 @@ class PlaylistsManager {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.remove(playlistName);
   }
+
+  Future<bool> playlistExists(String playlistName) async {
+    if (playlistName.isEmpty) return false;
+    final Directory playlistDir = Directory(p.join(storagePath, playlistName));
+    return playlistDir.exists();
+  }
+
+  Future<void> renamePlaylist(String oldName, String newName) async {
+    if (oldName.isEmpty || newName.isEmpty || oldName == newName) return;
+
+    final Directory oldDir = Directory(p.join(storagePath, oldName));
+    final Directory newDir = Directory(p.join(storagePath, newName));
+    if (!await oldDir.exists()) {
+      throw Exception('プレイリストフォルダが見つかりません');
+    }
+    if (await newDir.exists()) {
+      throw Exception('同じ名前のプレイリストが既に存在します');
+    }
+
+    await oldDir.rename(newDir.path);
+
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final String? url = prefs.getString(oldName);
+    if (url != null) {
+      await prefs.setString(newName, url);
+      await prefs.remove(oldName);
+    }
+  }
+
+  Future<void> deletePlaylist(String playlistName) async {
+    if (playlistName.isEmpty) return;
+
+    final Directory playlistDir = Directory(p.join(storagePath, playlistName));
+    if (await playlistDir.exists()) {
+      await playlistDir.delete(recursive: true);
+    }
+    await deletePlaylistURL(playlistName);
+  }
 }
 
 class PlaylistManager {
   String playlistName;
 
-  PlaylistManager(this.playlistName){
+  PlaylistManager(this.playlistName) {
     if (playlistName == '') {
       Exception('Playlist name is empty');
     }
   }
 
   Future<List<String>> getPlaylistSongs(String playlistName) async {
-    const String storagePath = '/storage/emulated/0/Download/localyt_music';
+    const String storagePath = PlaylistsManager.storagePath;
     final Directory dir = Directory(storagePath);
     if (!await dir.exists()) return [];
     try {
-      final Directory playlistDir = Directory(p.join(storagePath, playlistName));
+      final Directory playlistDir = Directory(
+        p.join(storagePath, playlistName),
+      );
       if (!await playlistDir.exists()) return [];
       print(playlistDir.path);
       List<String> songNames = playlistDir
