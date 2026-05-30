@@ -56,6 +56,23 @@ class MainActivity : FlutterActivity() {
                         result.error("error", "error", null)
                     }
                 }
+                "getAudioThumbnail" -> {
+                    val filePath = call.argument<String>("path")
+                    if (filePath != null) {
+                        val retriever = MediaMetadataRetriever()
+                        try {
+                            retriever.setDataSource(filePath)
+                            result.success(retriever.embeddedPicture)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to read audio thumbnail", e)
+                            result.success(null)
+                        } finally {
+                            retriever.release()
+                        }
+                    }else{
+                        result.error("error", "error", null)
+                    }
+                }
                 else -> {
                     result.notImplemented()
                 }
