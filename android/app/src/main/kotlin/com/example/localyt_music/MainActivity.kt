@@ -179,7 +179,11 @@ class MainActivity : AudioServiceActivity() {
                     eventSink?.success(0.0)
                 }
                 playlistURLs.forEachIndexed { index, playlistURL ->
-                    downloadSingleYT(playlistURL, path)
+                    try {
+                        downloadSingleYT(playlistURL, path)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Skipping video that failed to download: $playlistURL", e)
+                    }
                     val progress = ((index + 1).toDouble() / playlistURLs.size) * 100
                     Handler(Looper.getMainLooper()).post {
                         eventSink?.success(progress)
