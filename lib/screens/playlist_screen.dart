@@ -3,6 +3,7 @@ import 'package:localyt_music/screens/playlist_edit_screen.dart';
 import 'package:localyt_music/screens/song_player_screen.dart';
 import 'package:localyt_music/services/file_service.dart';
 import 'package:localyt_music/models/song.dart';
+import 'package:localyt_music/widgets/mini_player.dart';
 
 class PlaylistScreen extends StatefulWidget {
   final String playlistName;
@@ -34,6 +35,8 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.playlistName),
@@ -96,6 +99,16 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                 );
               },
             ),
+      bottomNavigationBar: Material(
+        color: colorScheme.surfaceContainerHigh,
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            MiniPlayer(),
+            SizedBox(height: 28),
+          ],
+        ),
+      ),
     );
   }
 }
