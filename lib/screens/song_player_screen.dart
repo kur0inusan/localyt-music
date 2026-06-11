@@ -294,6 +294,7 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
                               style: FilledButton.styleFrom(
                                 shape: const CircleBorder(),
                                 fixedSize: const Size(72, 72),
+                                padding: EdgeInsets.zero,
                               ),
                               child: Icon(
                                 isPlaying ? Icons.pause : Icons.play_arrow,
