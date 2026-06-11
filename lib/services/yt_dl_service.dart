@@ -34,7 +34,8 @@ class YTDLService {
 
   static Stream<double> get progressStream {
     return _eventChannel.receiveBroadcastStream().map((event) {
-      return (event as double?) ?? 0.0;
+      if (event is num) return event.toDouble();
+      return 0.0;
     });
   }
 
