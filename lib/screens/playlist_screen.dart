@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:localyt_music/screens/playlist_edit_screen.dart';
 import 'package:localyt_music/screens/song_player_screen.dart';
+import 'package:localyt_music/services/audio_player_service.dart';
 import 'package:localyt_music/services/file_service.dart';
 import 'package:localyt_music/models/song.dart';
 import 'package:localyt_music/widgets/mini_player.dart';
@@ -36,6 +38,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final AudioPlayerService audioService = AudioPlayerService.instance;
 
     return Scaffold(
       appBar: AppBar(
@@ -84,7 +87,35 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                     overflow: TextOverflow.ellipsis,
                     maxLines: 1,
                   ),
-                  trailing: const Icon(Icons.play_arrow),
+                  trailing: StreamBuilder<int?>(
+                    stream: audioService.currentIndexStream,
+                    initialData: audioService.currentIndex,
+                    builder: (context, indexSnapshot) {
+                      final int? currentIndex = indexSnapshot.data;
+                      final bool isCurrentSong =
+                          currentIndex != null &&
+                          currentIndex >= 0 &&
+                          currentIndex < audioService.songs.length &&
+                          audioService.songs[currentIndex].path == song.path;
+
+                      if (!isCurrentSong) {
+                        return const Icon(Icons.play_arrow);
+                      }
+
+                      return StreamBuilder<PlayerState>(
+                        stream: audioService.playerStateStream,
+                        initialData: audioService.player.playerState,
+                        builder: (context, stateSnapshot) {
+                          final bool isPlaying =
+                              stateSnapshot.data?.playing ?? false;
+                          return Icon(
+                            isPlaying ? Icons.pause : Icons.play_arrow,
+                            color: colorScheme.primary,
+                          );
+                        },
+                      );
+                    },
+                  ),
                   onTap: () {
                     Navigator.push(
                       context,
