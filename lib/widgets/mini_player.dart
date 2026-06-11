@@ -41,7 +41,7 @@ class MiniPlayer extends StatelessWidget {
                 context,
                 MaterialPageRoute(
                   builder: (context) =>
-                      SongPlayerScreen(songs: songs, initialIndex: index),
+                      SongPlayerScreen(songs: songs, initialIndex: index, autoPlay: false),
                 ),
               );
             },

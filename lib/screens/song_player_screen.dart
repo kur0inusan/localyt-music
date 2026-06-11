@@ -10,11 +10,13 @@ import 'package:localyt_music/services/audio_player_service.dart';
 class SongPlayerScreen extends StatefulWidget {
   final List<Song> songs;
   final int initialIndex;
+  final bool autoPlay;
 
   const SongPlayerScreen({
     super.key,
     required this.songs,
     required this.initialIndex,
+    this.autoPlay = true,
   });
 
   @override
@@ -60,7 +62,11 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
     }
 
     try {
-      await _audioService.playPlaylist(widget.songs, widget.initialIndex);
+      await _audioService.loadPlaylist(
+        widget.songs,
+        widget.initialIndex,
+        autoPlay: widget.autoPlay,
+      );
       if (!mounted) return;
       setState(() {
         _isLoading = false;
@@ -169,7 +175,7 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
     final Song? currentSong = _currentSong;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('再生中')),
+      appBar: AppBar(),
       body: SafeArea(
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())

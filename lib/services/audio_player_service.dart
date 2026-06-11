@@ -55,6 +55,15 @@ class AudioPlayerService {
   /// 指定したプレイリストの [initialIndex] 番目の曲から再生を開始する。
   /// 既に同じプレイリストを読み込み済みの場合は、曲の切り替えのみ行う。
   Future<void> playPlaylist(List<Song> songs, int initialIndex) async {
+    await loadPlaylist(songs, initialIndex, autoPlay: true);
+  }
+
+  /// プレイリストを読み込む。[autoPlay] が false の場合は再生を開始しない。
+  Future<void> loadPlaylist(
+    List<Song> songs,
+    int initialIndex, {
+    bool autoPlay = true,
+  }) async {
     if (songs.isEmpty) return;
     final int clampedIndex = initialIndex.clamp(0, songs.length - 1);
 
@@ -62,7 +71,9 @@ class AudioPlayerService {
       if (player.currentIndex != clampedIndex) {
         await player.seek(Duration.zero, index: clampedIndex);
       }
-      unawaited(player.play());
+      if (autoPlay) {
+        unawaited(player.play());
+      }
       return;
     }
 
@@ -85,7 +96,9 @@ class AudioPlayerService {
     ];
 
     await player.setAudioSources(children, initialIndex: clampedIndex);
-    unawaited(player.play());
+    if (autoPlay) {
+      unawaited(player.play());
+    }
   }
 
   Future<void> playPause() async {
