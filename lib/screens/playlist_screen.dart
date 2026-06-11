@@ -67,7 +67,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
               itemBuilder: (context, index) {
                 final Song song = _playlistSongs[index];
                 return ListTile(
-                  leading: const Icon(Icons.music_note),
+                  // leading: const Icon(Icons.music_note),
                   title: Text(
                     song.title,
                     overflow: TextOverflow.ellipsis,
