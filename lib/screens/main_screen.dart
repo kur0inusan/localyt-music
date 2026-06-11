@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:localyt_music/screens/home_screen.dart';
 import 'package:localyt_music/screens/setting_screen.dart';
 import 'package:localyt_music/screens/playlists_screen.dart';
+import 'package:localyt_music/widgets/mini_player.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({Key? key}) : super(key: key);
@@ -33,13 +34,20 @@ class _MainScreenState extends State<MainScreen> {
       body: Center(
         child: _widgetOptions.elementAt(_selectedIndex),
       ),
-      bottomNavigationBar: NavigationBar(destinations: const [
-        NavigationDestination(icon: Icon(Icons.home), label: 'Home'),
-        NavigationDestination(icon: Icon(Icons.playlist_play), label: 'Playlists'),
-        NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
-      ],
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: _onItemTapped,
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const MiniPlayer(),
+          NavigationBar(
+            destinations: const [
+              NavigationDestination(icon: Icon(Icons.home), label: 'Home'),
+              NavigationDestination(icon: Icon(Icons.playlist_play), label: 'Playlists'),
+              NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
+            ],
+            selectedIndex: _selectedIndex,
+            onDestinationSelected: _onItemTapped,
+          ),
+        ],
       ),
     );
   }

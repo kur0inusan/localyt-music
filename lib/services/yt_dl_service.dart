@@ -1,14 +1,21 @@
+import 'dart:developer' as developer;
+
 import 'package:flutter/services.dart';
 
-class YTDLService{
-  static const MethodChannel _methodChannel = MethodChannel('com.kuroinusan.localyt_music/youtubedl');
-  static const EventChannel _eventChannel = EventChannel('com.kuroinusan.localyt_music/youtubedl_event');
+class YTDLService {
+  static const MethodChannel _methodChannel = MethodChannel(
+    'com.kuroinusan.localyt_music/youtubedl',
+  );
+  static const EventChannel _eventChannel = EventChannel(
+    'com.kuroinusan.localyt_music/youtubedl_event',
+  );
 
   static bool _isYoutubePlaylist(String url) {
     try {
       final uri = Uri.parse(url);
 
-      final isYoutubeHost = uri.host.contains('youtube.com') || uri.host.contains('youtu.be');
+      final isYoutubeHost =
+          uri.host.contains('youtube.com') || uri.host.contains('youtu.be');
       if (!isYoutubeHost) return false;
 
       if (uri.queryParameters.containsKey('list')) {
@@ -41,8 +48,12 @@ class YTDLService{
         'url': url,
         'path': path,
       });
-    } on PlatformException catch (e) {
-      print("Failed to start download: ${e.message}");
+    } on PlatformException catch (e, stackTrace) {
+      developer.log(
+        'Failed to start download',
+        error: e,
+        stackTrace: stackTrace,
+      );
       rethrow;
     }
   }

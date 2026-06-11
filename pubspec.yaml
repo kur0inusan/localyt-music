@@ -39,6 +39,7 @@ dependencies:
   audio_session: ^0.2.3
   just_audio: ^0.10.5
   just_audio_background: ^0.0.1-beta.17
+  path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_test:

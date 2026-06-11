@@ -1,3 +1,4 @@
+import 'dart:developer' as developer;
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -20,13 +21,18 @@ class PlaylistsManager {
           .toList();
       List<Playlist> playlists = [];
       for (String playlistName in folderNames) {
-        final List<Song> songs = await PlaylistManager(playlistName)
-            .getPlaylistSongs(playlistName);
+        final List<Song> songs = await PlaylistManager(
+          playlistName,
+        ).getPlaylistSongs(playlistName);
         playlists.add(Playlist(playlistName, songs.length));
       }
       return playlists;
-    } catch (e) {
-      print('error: $e');
+    } catch (e, stackTrace) {
+      developer.log(
+        'Failed to load playlists',
+        error: e,
+        stackTrace: stackTrace,
+      );
       return [];
     }
   }
@@ -117,33 +123,59 @@ class PlaylistManager {
         p.join(storagePath, playlistName),
       );
       if (!await playlistDir.exists()) return [];
-      print(playlistDir.path);
-      List<File> songFiles = playlistDir
-          .listSync()
-          .whereType<File>()
-          .where((f) => p.extension(f.path).toLowerCase() == '.mp3')
+      final List<File> songFiles = await playlistDir
+          .list(recursive: true)
+          .where((entity) => entity is File)
+          .cast<File>()
+          .where((file) => p.extension(file.path).toLowerCase() == '.mp3')
           .toList();
+      songFiles.sort((a, b) => a.path.compareTo(b.path));
+
       List<Song> songs = [];
       for (File songFile in songFiles) {
         final String songName = p.basenameWithoutExtension(songFile.path);
-        final metadata = await _methodChannel.invokeMapMethod<String, String>(
-          'getAudioMetadata',
-          {'path': songFile.path},
-        );
+        Map<String, String>? metadata;
+        try {
+          metadata = await _methodChannel.invokeMapMethod<String, String>(
+            'getAudioMetadata',
+            {'path': songFile.path},
+          );
+        } catch (_) {
+          metadata = null;
+        }
         songs.add(
           Song(
             metadata?['title']?.isNotEmpty == true
                 ? metadata!['title']!
                 : songName,
-            metadata?['album'] ?? '',
+            metadata?['album']?.isNotEmpty == true
+                ? metadata!['album']!
+                : playlistName,
             metadata?['artist'] ?? '',
+            songFile.path,
+            _findSidecarThumbnail(songFile),
           ),
         );
       }
       return songs;
-    } catch (e) {
-      print('error: $e');
+    } catch (e, stackTrace) {
+      developer.log(
+        'Failed to load playlist songs',
+        error: e,
+        stackTrace: stackTrace,
+      );
       return [];
     }
+  }
+
+  String _findSidecarThumbnail(File songFile) {
+    final String basePath = p.withoutExtension(songFile.path);
+    for (final String extension in ['jpg', 'jpeg', 'png', 'webp']) {
+      final File thumbnail = File('$basePath.$extension');
+      if (thumbnail.existsSync()) {
+        return thumbnail.path;
+      }
+    }
+    return '';
   }
 }

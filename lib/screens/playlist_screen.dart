@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:localyt_music/screens/playlist_edit_screen.dart';
+import 'package:localyt_music/screens/song_player_screen.dart';
 import 'package:localyt_music/services/file_service.dart';
 import 'package:localyt_music/models/song.dart';
 
@@ -59,23 +60,42 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: <Widget>[
-          for (Song songName in _playlistSongs)
-            ListTile(
-              title: Text(
-                songName.title,
-                overflow: TextOverflow.ellipsis,
-                maxLines: 1,
-              ),
-              subtitle: Text(
-                '${songName.artist} - ${songName.albam}',
-                overflow: TextOverflow.ellipsis,
-                maxLines: 1,
-              ),
+      body: _playlistSongs.isEmpty
+          ? const Center(child: Text('曲がありません'))
+          : ListView.builder(
+              itemCount: _playlistSongs.length,
+              itemBuilder: (context, index) {
+                final Song song = _playlistSongs[index];
+                return ListTile(
+                  leading: const Icon(Icons.music_note),
+                  title: Text(
+                    song.title,
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
+                  subtitle: Text(
+                    [
+                      song.artist,
+                      song.album,
+                    ].where((value) => value.isNotEmpty).join(' - '),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
+                  trailing: const Icon(Icons.play_arrow),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => SongPlayerScreen(
+                          songs: _playlistSongs,
+                          initialIndex: index,
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
             ),
-        ],
-      ),
     );
   }
 }

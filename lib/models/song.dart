@@ -1,6 +1,17 @@
 class Song {
-  late final String title;
-  late final String albam;
-  late final String artist;
-  Song(this.title, this.albam, this.artist);
+  final String title;
+  final String album;
+  final String artist;
+  final String path;
+  final String thumbnailPath;
+
+  const Song(
+    this.title,
+    this.album,
+    this.artist, [
+    this.path = '',
+    this.thumbnailPath = '',
+  ]);
+
+  String get albam => album;
 }

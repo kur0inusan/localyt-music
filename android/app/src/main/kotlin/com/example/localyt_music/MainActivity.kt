@@ -7,14 +7,14 @@ import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.ReturnCode
+import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.Log
-import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
-class MainActivity : FlutterActivity() {
+class MainActivity : AudioServiceActivity() {
     private val CHANNEL = "com.kuroinusan.localyt_music/youtubedl"
     private val EVENT_CHANNEL = "com.kuroinusan.localyt_music/youtubedl_event"
     private var eventSink: EventChannel.EventSink? = null
@@ -158,6 +158,19 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun hasEmbeddedPicture(file: File): Boolean {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(file.absolutePath)
+            retriever.embeddedPicture != null
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to verify embedded thumbnail", e)
+            false
+        } finally {
+            retriever.release()
+        }
+    }
+
     private fun downloadPlaylist(url: String, path: String, result: MethodChannel.Result) {
         Thread {
             try {
@@ -165,12 +178,9 @@ class MainActivity : FlutterActivity() {
                 Handler(Looper.getMainLooper()).post {
                     eventSink?.success(0)
                 }
-                var index = 0
-                var progress = 0.toFloat()
-                for (playlistURL in playlistURLs) {
+                playlistURLs.forEachIndexed { index, playlistURL ->
                     downloadSingleYT(playlistURL, path)
-                    progress = (index.toFloat() / playlistURLs.size) * 100
-                    index++
+                    val progress = ((index + 1).toFloat() / playlistURLs.size) * 100
                     Handler(Looper.getMainLooper()).post {
                         eventSink?.success(progress)
                     }
@@ -189,20 +199,20 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun downloadSingleYT(url: String, path: String) {
-        val dir = File(
+        val playlistDir = File(
             android.os.Environment.getExternalStoragePublicDirectory(
                 android.os.Environment.DIRECTORY_DOWNLOADS
             ).absolutePath + "/localyt_music/$path"
         )
-        if (!dir.exists()) {
-            dir.mkdirs()
+        if (!playlistDir.exists()) {
+            playlistDir.mkdirs()
         }
         val request = YoutubeDLRequest(url)
-        request.addOption("-o", "${dir.absolutePath}/%(title)s.%(ext)s")
+        request.addOption("-o", "${playlistDir.absolutePath}/%(title)s.%(ext)s")
         request.addOption("--no-playlist")
         request.addOption("--extractor-args", "youtube:player_client=android")
         request.addOption("--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-        request.addOption("--download-archive", dir.absolutePath+"/downloaded.txt")
+        request.addOption("--download-archive", playlistDir.absolutePath+"/downloaded.txt")
         request.addOption("--no-update")
         request.addOption("--no-warnings")
         request.addOption("--windows-filenames")
@@ -213,7 +223,7 @@ class MainActivity : FlutterActivity() {
             Log.d(TAG, "progress: $progress, eta: $etaInSeconds")
         }
 
-        val downloadedFiles = dir.listFiles { file ->
+        val downloadedFiles = playlistDir.listFiles { file ->
             val ext = file.extension.lowercase()
             ext != "txt" && ext != "mp3" && ext != "jpg" && ext != "png" && ext != "webp" && ext != "json"
         }
@@ -222,15 +232,10 @@ class MainActivity : FlutterActivity() {
 //                    print(originalFile.name)
 //                    print(originalFile.nameWithoutExtension)
 
-            var thumbnailFile = File(dir, "${originalFile.nameWithoutExtension}.webp")
-            if (!thumbnailFile.exists()) {
-                // webpがない場合はjpgやpngを探す
-                val altThumb = File(dir, "${originalFile.nameWithoutExtension}.jpg")
-                if (altThumb.exists()) thumbnailFile = altThumb
-            }
+            val thumbnailFile = findThumbnailFile(playlistDir, originalFile.nameWithoutExtension)
 
-            val mp3File = File(dir, "${originalFile.nameWithoutExtension}.mp3")
-            val infoFile = File(dir, "${originalFile.nameWithoutExtension}.info.json")
+            val mp3File = File(playlistDir, "${originalFile.nameWithoutExtension}.mp3")
+            val infoFile = File(playlistDir, "${originalFile.nameWithoutExtension}.info.json")
             val infoJson = if (infoFile.exists()) {
                 org.json.JSONObject(infoFile.readText())
             } else {
@@ -246,16 +251,24 @@ class MainActivity : FlutterActivity() {
             }
 
             var cmd = "-i \"${originalFile.absolutePath}\""
-            if (thumbnailFile.exists()) {
+            if (thumbnailFile != null) {
                 cmd += " -i \"${thumbnailFile.absolutePath}\""
             }
-            cmd += " -vn -ab 320k -y"
-            cmd += " -map 0:a"
-            if (thumbnailFile.exists()) {
-                cmd += " -map 1:v"
+            cmd += " -y"
+            cmd += " -map 0:a:0"
+            if (thumbnailFile != null) {
+                cmd += " -map 1:v:0"
+            } else {
+                cmd += " -vn"
+            }
+            cmd += " -c:a libmp3lame -b:a 320k"
+            if (thumbnailFile != null) {
                 cmd += " -c:v mjpeg"
                 cmd += " -disposition:v attached_pic"
+                cmd += " -metadata:s:v title=\"Album cover\""
+                cmd += " -metadata:s:v comment=\"Cover (front)\""
             }
+            cmd += " -id3v2_version 3 -write_id3v1 1"
             if (title.isNotBlank()) {
                 cmd += " -metadata title=\"${escapeMetadata(title)}\""
             }
@@ -271,8 +284,10 @@ class MainActivity : FlutterActivity() {
 
             if (ReturnCode.isSuccess(session.returnCode)) {
                 originalFile.delete()
-                if (thumbnailFile.exists()) {
+                if (thumbnailFile != null && hasEmbeddedPicture(mp3File)) {
                     thumbnailFile.delete()
+                } else if (thumbnailFile != null) {
+                    Log.e(TAG, "Thumbnail was not embedded; keeping sidecar file: ${thumbnailFile.name}")
                 }
                 if (infoFile.exists()) {
                     infoFile.delete()
@@ -282,5 +297,12 @@ class MainActivity : FlutterActivity() {
                 Log.e(TAG, "FFmpeg-kit conversion failed: ${session.returnCode}")
             }
         }
+    }
+
+    private fun findThumbnailFile(dir: File, baseName: String): File? {
+        val extensions = arrayOf("jpg", "jpeg", "png", "webp")
+        return extensions
+            .map { extension -> File(dir, "$baseName.$extension") }
+            .firstOrNull { file -> file.exists() }
     }
 }
