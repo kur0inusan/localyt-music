@@ -269,6 +269,21 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
+                        StreamBuilder<bool>(
+                          stream: _audioService.shuffleModeEnabledStream,
+                          initialData: _audioService.shuffleModeEnabled,
+                          builder: (context, snapshot) {
+                            final bool enabled = snapshot.data ?? false;
+                            return IconButton(
+                              tooltip: 'シャッフル再生',
+                              iconSize: 28,
+                              color: enabled ? colorScheme.primary : null,
+                              onPressed: _audioService.toggleShuffleMode,
+                              icon: const Icon(Icons.shuffle),
+                            );
+                          },
+                        ),
+                        const SizedBox(width: 8),
                         IconButton(
                           tooltip: '前の曲',
                           iconSize: 40,
@@ -315,6 +330,28 @@ class _SongPlayerScreenState extends State<SongPlayerScreen> {
                           iconSize: 40,
                           onPressed: _audioService.seekToNext,
                           icon: const Icon(Icons.skip_next),
+                        ),
+                        const SizedBox(width: 8),
+                        StreamBuilder<LoopMode>(
+                          stream: _audioService.loopModeStream,
+                          initialData: _audioService.loopMode,
+                          builder: (context, snapshot) {
+                            final LoopMode loopMode =
+                                snapshot.data ?? LoopMode.off;
+                            return IconButton(
+                              tooltip: '繰り返し再生',
+                              iconSize: 28,
+                              color: loopMode == LoopMode.off
+                                  ? null
+                                  : colorScheme.primary,
+                              onPressed: _audioService.cycleLoopMode,
+                              icon: Icon(
+                                loopMode == LoopMode.one
+                                    ? Icons.repeat_one
+                                    : Icons.repeat,
+                              ),
+                            );
+                          },
                         ),
                       ],
                     ),

@@ -51,6 +51,11 @@ class AudioPlayerService {
   Stream<PlayerState> get playerStateStream => player.playerStateStream;
   Stream<Duration> get positionStream => player.positionStream;
   Stream<Duration?> get durationStream => player.durationStream;
+  Stream<bool> get shuffleModeEnabledStream => player.shuffleModeEnabledStream;
+  Stream<LoopMode> get loopModeStream => player.loopModeStream;
+
+  bool get shuffleModeEnabled => player.shuffleModeEnabled;
+  LoopMode get loopMode => player.loopMode;
 
   /// 指定したプレイリストの [initialIndex] 番目の曲から再生を開始する。
   /// 既に同じプレイリストを読み込み済みの場合は、曲の切り替えのみ行う。
@@ -124,6 +129,30 @@ class AudioPlayerService {
   }
 
   Future<void> seek(Duration position) => player.seek(position);
+
+  /// シャッフル再生のオン/オフを切り替える。オンにする際は再生順をシャッフルし直す。
+  Future<void> toggleShuffleMode() async {
+    final bool enable = !player.shuffleModeEnabled;
+    if (enable) {
+      await player.shuffle();
+    }
+    await player.setShuffleModeEnabled(enable);
+  }
+
+  /// 繰り返し再生モードを「なし → 全曲リピート → 1曲リピート → なし」の順に切り替える。
+  Future<void> cycleLoopMode() async {
+    switch (player.loopMode) {
+      case LoopMode.off:
+        await player.setLoopMode(LoopMode.all);
+        break;
+      case LoopMode.all:
+        await player.setLoopMode(LoopMode.one);
+        break;
+      case LoopMode.one:
+        await player.setLoopMode(LoopMode.off);
+        break;
+    }
+  }
 
   /// 曲のサムネイル画像を取得する。サイドカー画像があればそれを、
   /// なければ音声ファイルに埋め込まれた画像を読み込む。結果はキャッシュされる。
