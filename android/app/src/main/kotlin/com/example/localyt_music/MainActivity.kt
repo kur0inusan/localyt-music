@@ -1,6 +1,7 @@
 package com.example.localyt_music
 import android.content.ContentValues.TAG
 import android.media.MediaMetadataRetriever
+import android.media.MediaScannerConnection
 import android.os.Handler
 import android.os.Looper
 import com.yausername.youtubedl_android.YoutubeDL
@@ -296,6 +297,12 @@ class MainActivity : AudioServiceActivity() {
                 if (infoFile.exists()) {
                     infoFile.delete()
                 }
+                MediaScannerConnection.scanFile(
+                    applicationContext,
+                    arrayOf(mp3File.absolutePath),
+                    arrayOf("audio/mpeg"),
+                    null
+                )
                 Log.d(TAG, "Conversion successful, deleted original: ${originalFile.name}")
             } else {
                 Log.e(TAG, "FFmpeg-kit conversion failed: ${session.returnCode}")
