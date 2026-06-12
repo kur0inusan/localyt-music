@@ -19,6 +19,8 @@ class _MainScreenState extends State<MainScreen> {
     SettingScreen(),
   ];
 
+  static const List<String> _titles = <String>['ホーム', 'プレイリスト', '設定'];
+
   void _onItemTapped(int index) {
     setState(() {
       _selectedIndex = index;
@@ -29,7 +31,7 @@ class _MainScreenState extends State<MainScreen> {
   Widget build(BuildContext context){
     return Scaffold(
       appBar: AppBar(
-        title: const Text('LocalYT Music'),
+        title: Text(_titles[_selectedIndex]),
       ),
       body: Center(
         child: _widgetOptions.elementAt(_selectedIndex),
