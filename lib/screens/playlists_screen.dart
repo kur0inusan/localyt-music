@@ -39,7 +39,6 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
                 text: TextSpan(
                   style: DefaultTextStyle.of(context).style,
                     children: [
-                      TextSpan(text: '♪ ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                       TextSpan(text: '${playlist.songs}曲'),
                     ]
                 ),
