@@ -11,7 +11,7 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  int _selectedIndex = 0;
+  int _selectedIndex = 1;
 
   static const List<Widget> _widgetOptions = <Widget>[
     HomeScreen(),
@@ -38,15 +38,16 @@ class _MainScreenState extends State<MainScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           const MiniPlayer(),
-          NavigationBar(
-            destinations: const [
-              NavigationDestination(icon: Icon(Icons.home), label: 'Home'),
-              NavigationDestination(icon: Icon(Icons.playlist_play), label: 'Playlists'),
-              NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
-            ],
-            selectedIndex: _selectedIndex,
-            onDestinationSelected: _onItemTapped,
-          ),
+          // NavigationBar(
+          //   destinations: const [
+          //     NavigationDestination(icon: Icon(Icons.home), label: 'Home'),
+          //     NavigationDestination(icon: Icon(Icons.playlist_play), label: 'Playlists'),
+          //     NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
+          //   ],
+          //   selectedIndex: _selectedIndex,
+          //   onDestinationSelected: _onItemTapped,
+          // ),
+
         ],
       ),
     );
