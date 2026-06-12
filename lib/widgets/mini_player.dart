@@ -1,11 +1,9 @@
-import 'dart:io';
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:localyt_music/models/song.dart';
 import 'package:localyt_music/screens/song_player_screen.dart';
 import 'package:localyt_music/services/audio_player_service.dart';
+import 'package:localyt_music/widgets/song_thumbnail.dart';
 
 /// 画面下部に表示する再生中ミニプレイヤー。
 ///
@@ -55,7 +53,7 @@ class MiniPlayer extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    _buildThumbnail(colorScheme, song, audioService),
+                    SongThumbnail(song: song),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
@@ -129,50 +127,4 @@ class MiniPlayer extends StatelessWidget {
     );
   }
 
-  Widget _buildThumbnail(
-    ColorScheme colorScheme,
-    Song song,
-    AudioPlayerService audioService,
-  ) {
-    if (song.thumbnailPath.isNotEmpty) {
-      final File file = File(song.thumbnailPath);
-      if (file.existsSync()) {
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: Image.file(file, width: 40, height: 40, fit: BoxFit.cover),
-        );
-      }
-    }
-
-    return FutureBuilder<Uint8List?>(
-      future: audioService.loadThumbnail(song),
-      builder: (context, snapshot) {
-        final Uint8List? bytes = snapshot.data;
-        if (bytes != null) {
-          return ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: Image.memory(
-              bytes,
-              width: 40,
-              height: 40,
-              fit: BoxFit.cover,
-            ),
-          );
-        }
-        return Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Icon(
-            Icons.music_note,
-            color: colorScheme.onSurfaceVariant,
-            size: 20,
-          ),
-        );
-      },
-    );
-  }
 }
