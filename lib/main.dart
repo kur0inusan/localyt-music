@@ -10,6 +10,22 @@ Future<void> main() async {
     androidNotificationChannelName: '音楽再生',
     androidNotificationOngoing: true,
   );
-  runApp(const MaterialApp(home: MainScreen()));
+  final ColorScheme lightScheme = ColorScheme.fromSeed(
+    seedColor: const Color(0xFF00897B),
+  );
+  final ColorScheme darkScheme = ColorScheme.fromSeed(
+    seedColor: const Color(0xFF00897B),
+    brightness: Brightness.dark,
+  );
+
+  runApp(
+    MaterialApp(
+      title: 'LocalYT Music',
+      theme: ThemeData(colorScheme: lightScheme, useMaterial3: true),
+      darkTheme: ThemeData(colorScheme: darkScheme, useMaterial3: true),
+      themeMode: ThemeMode.system,
+      home: const MainScreen(),
+    ),
+  );
 }
 // void main() => runApp(const MaterialApp(home: TestDownloadScreen()));
