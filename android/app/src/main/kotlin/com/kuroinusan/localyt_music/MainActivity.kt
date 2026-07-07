@@ -1,9 +1,15 @@
-package com.example.localyt_music
-import android.content.ContentValues.TAG
+package com.kuroinusan.localyt_music
+
+import android.Manifest
+import android.content.pm.PackageManager
 import android.media.MediaMetadataRetriever
 import android.media.MediaScannerConnection
+import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import com.arthenica.ffmpegkit.FFmpegKit
@@ -16,9 +22,39 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
 class MainActivity : AudioServiceActivity() {
-    private val CHANNEL = "com.kuroinusan.localyt_music/youtubedl"
-    private val EVENT_CHANNEL = "com.kuroinusan.localyt_music/youtubedl_event"
+    companion object {
+        private const val TAG = "LocalYTMusic"
+        private const val CHANNEL = "com.kuroinusan.localyt_music/youtubedl"
+        private const val EVENT_CHANNEL = "com.kuroinusan.localyt_music/youtubedl_event"
+        private const val PERMISSION_REQUEST_CODE = 1001
+    }
+
     private var eventSink: EventChannel.EventSink? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        requestRuntimePermissions()
+    }
+
+    /// 通知(Android 13+)とストレージ(Android 9以下)の実行時権限をまとめて要求する
+    private fun requestRuntimePermissions() {
+        val permissions = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+            permissions.add(Manifest.permission.READ_MEDIA_AUDIO)
+        } else {
+            permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+                permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            }
+        }
+        val missing = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, missing.toTypedArray(), PERMISSION_REQUEST_CODE)
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -43,10 +79,14 @@ class MainActivity : AudioServiceActivity() {
                 "downloadYT" -> {
                     val url = call.argument<String>("url")
                     val path = call.argument<String>("path")
-                    if (url != null && path != null) {
-                        downloadPlaylist(url, path, result)
-                    } else {
-                        result.error("error", "error", null)
+                    when {
+                        url == null || path == null ->
+                            result.error("INVALID_ARGS", "url and path are required", null)
+                        !isAllowedUrl(url) ->
+                            result.error("INVALID_URL", "Only YouTube URLs are supported", null)
+                        !isSafePlaylistName(path) ->
+                            result.error("INVALID_NAME", "Invalid playlist name", null)
+                        else -> downloadPlaylist(url, path, result)
                     }
                 }
                 "getAudioMetadata" -> {
@@ -54,7 +94,7 @@ class MainActivity : AudioServiceActivity() {
                     if (filePath != null) {
                         result.success(getAudioMetadata(filePath))
                     } else {
-                        result.error("error", "error", null)
+                        result.error("INVALID_ARGS", "path is required", null)
                     }
                 }
                 "getAudioThumbnail" -> {
@@ -70,8 +110,8 @@ class MainActivity : AudioServiceActivity() {
                         } finally {
                             retriever.release()
                         }
-                    }else{
-                        result.error("error", "error", null)
+                    } else {
+                        result.error("INVALID_ARGS", "path is required", null)
                     }
                 }
                 else -> {
@@ -88,6 +128,39 @@ class MainActivity : AudioServiceActivity() {
                     eventSink = null
                 }
             })
+    }
+
+    /// yt-dlpに渡すURLをYouTubeのhttps URLに限定する(Dart側の検証をすり抜けた場合の防波堤)
+    private fun isAllowedUrl(url: String): Boolean {
+        return try {
+            val uri = android.net.Uri.parse(url)
+            val host = uri.host?.lowercase() ?: return false
+            uri.scheme == "https" &&
+                (host == "www.youtube.com" || host == "youtube.com" ||
+                    host == "m.youtube.com" || host == "music.youtube.com" ||
+                    host == "youtu.be")
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /// プレイリスト名がベースディレクトリ外を指せないことを保証する
+    private fun isSafePlaylistName(name: String): Boolean {
+        if (name.isBlank() || name.length > 100) return false
+        if (name.contains("/") || name.contains("\\") || name.contains("..")) return false
+        if (name.startsWith(".")) return false
+        val baseDir = playlistBaseDir()
+        val target = File(baseDir, name)
+        return target.canonicalPath.startsWith(baseDir.canonicalPath + File.separator)
+    }
+
+    private fun playlistBaseDir(): File {
+        return File(
+            android.os.Environment.getExternalStoragePublicDirectory(
+                android.os.Environment.DIRECTORY_DOWNLOADS
+            ),
+            "localyt_music"
+        )
     }
 
     private fun getPlaylistURLs(url: String): Array<String> {
@@ -204,11 +277,7 @@ class MainActivity : AudioServiceActivity() {
     }
 
     private fun downloadSingleYT(url: String, path: String) {
-        val playlistDir = File(
-            android.os.Environment.getExternalStoragePublicDirectory(
-                android.os.Environment.DIRECTORY_DOWNLOADS
-            ).absolutePath + "/localyt_music/$path"
-        )
+        val playlistDir = File(playlistBaseDir(), path)
         if (!playlistDir.exists()) {
             playlistDir.mkdirs()
         }
@@ -217,7 +286,7 @@ class MainActivity : AudioServiceActivity() {
         request.addOption("--no-playlist")
         request.addOption("--extractor-args", "youtube:player_client=android")
         request.addOption("--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-        request.addOption("--download-archive", playlistDir.absolutePath+"/downloaded.txt")
+        request.addOption("--download-archive", playlistDir.absolutePath + "/downloaded.txt")
         request.addOption("--no-update")
         request.addOption("--no-warnings")
         request.addOption("--windows-filenames")
@@ -234,9 +303,6 @@ class MainActivity : AudioServiceActivity() {
         }
 
         downloadedFiles?.forEach { originalFile ->
-//                    print(originalFile.name)
-//                    print(originalFile.nameWithoutExtension)
-
             val thumbnailFile = findThumbnailFile(playlistDir, originalFile.nameWithoutExtension)
 
             val mp3File = File(playlistDir, "${originalFile.nameWithoutExtension}.mp3")
@@ -251,41 +317,39 @@ class MainActivity : AudioServiceActivity() {
                 .ifBlank { infoJson?.optString("uploader").orEmpty() }
                 .ifBlank { infoJson?.optString("channel").orEmpty() }
 
-            fun escapeMetadata(value: String): String {
-                return value.replace("\\", "\\\\").replace("\"", "\\\"")
-            }
-
-            var cmd = "-i \"${originalFile.absolutePath}\""
+            // 文字列連結ではなく引数配列で渡すことで、曲タイトル等に含まれる
+            // 引用符・空白による引数インジェクションを構造的に防ぐ
+            val args = mutableListOf("-i", originalFile.absolutePath)
             if (thumbnailFile != null) {
-                cmd += " -i \"${thumbnailFile.absolutePath}\""
+                args.addAll(listOf("-i", thumbnailFile.absolutePath))
             }
-            cmd += " -y"
-            cmd += " -map 0:a:0"
+            args.add("-y")
+            args.addAll(listOf("-map", "0:a:0"))
             if (thumbnailFile != null) {
-                cmd += " -map 1:v:0"
+                args.addAll(listOf("-map", "1:v:0"))
             } else {
-                cmd += " -vn"
+                args.add("-vn")
             }
-            cmd += " -c:a libmp3lame -b:a 320k"
+            args.addAll(listOf("-c:a", "libmp3lame", "-b:a", "320k"))
             if (thumbnailFile != null) {
-                cmd += " -c:v mjpeg"
-                cmd += " -disposition:v attached_pic"
-                cmd += " -metadata:s:v title=\"Album cover\""
-                cmd += " -metadata:s:v comment=\"Cover (front)\""
+                args.addAll(listOf("-c:v", "mjpeg"))
+                args.addAll(listOf("-disposition:v", "attached_pic"))
+                args.addAll(listOf("-metadata:s:v", "title=Album cover"))
+                args.addAll(listOf("-metadata:s:v", "comment=Cover (front)"))
             }
-            cmd += " -id3v2_version 3 -write_id3v1 1"
+            args.addAll(listOf("-id3v2_version", "3", "-write_id3v1", "1"))
             if (title.isNotBlank()) {
-                cmd += " -metadata title=\"${escapeMetadata(title)}\""
+                args.addAll(listOf("-metadata", "title=$title"))
             }
             if (artist.isNotBlank()) {
-                cmd += " -metadata artist=\"${escapeMetadata(artist)}\""
+                args.addAll(listOf("-metadata", "artist=$artist"))
             }
-            cmd += " -metadata album=\"${escapeMetadata(path)}\""
+            args.addAll(listOf("-metadata", "album=$path"))
+            args.add(mp3File.absolutePath)
 
-            cmd += " \"${mp3File.absolutePath}\""
-            Log.d(TAG, "Starting 16KB-compliant FFmpeg-kit conversion: $cmd")
+            Log.d(TAG, "Starting FFmpeg-kit conversion: ${originalFile.name}")
 
-            val session = FFmpegKit.execute(cmd)
+            val session = FFmpegKit.executeWithArguments(args.toTypedArray())
 
             if (ReturnCode.isSuccess(session.returnCode)) {
                 originalFile.delete()
