@@ -5,7 +5,7 @@ import 'package:localyt_music/screens/playlists_screen.dart';
 import 'package:localyt_music/widgets/mini_player.dart';
 
 class MainScreen extends StatefulWidget {
-  const MainScreen({Key? key}) : super(key: key);
+  const MainScreen({super.key});
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
@@ -40,16 +40,15 @@ class _MainScreenState extends State<MainScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           const MiniPlayer(),
-          // NavigationBar(
-          //   destinations: const [
-          //     NavigationDestination(icon: Icon(Icons.home), label: 'Home'),
-          //     NavigationDestination(icon: Icon(Icons.playlist_play), label: 'Playlists'),
-          //     NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
-          //   ],
-          //   selectedIndex: _selectedIndex,
-          //   onDestinationSelected: _onItemTapped,
-          // ),
-
+          NavigationBar(
+            destinations: const [
+              NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'ホーム'),
+              NavigationDestination(icon: Icon(Icons.playlist_play_outlined), selectedIcon: Icon(Icons.playlist_play), label: 'プレイリスト'),
+              NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: '設定'),
+            ],
+            selectedIndex: _selectedIndex,
+            onDestinationSelected: _onItemTapped,
+          ),
         ],
       ),
     );

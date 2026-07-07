@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:localyt_music/services/yt_dl_service.dart'; // Serviceのパスは環境に合わせて変更してください
 
 class TestDownloadScreen extends StatefulWidget {
-  const TestDownloadScreen({Key? key}) : super(key: key);
+  const TestDownloadScreen({super.key});
 
   @override
   State<TestDownloadScreen> createState() => _TestDownloadScreenState();
