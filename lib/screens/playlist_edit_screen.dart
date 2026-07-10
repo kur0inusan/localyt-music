@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:localyt_music/services/file_service.dart';
 import 'package:localyt_music/services/yt_dl_service.dart';
+import 'package:localyt_music/widgets/storage_permission_dialog.dart';
 
 class PlaylistEditScreen extends StatefulWidget {
   final String playlistName;
@@ -101,6 +102,12 @@ class _PlaylistEditScreenState extends State<PlaylistEditScreen> {
       return;
     }
 
+    // フォルダのリネームには全ファイルアクセスが必要
+    if (!await ensureAllFilesAccess(context)) {
+      _showSnackBar('ファイルアクセスが許可されていないため変更できません');
+      return;
+    }
+
     setState(() {
       _isSaving = true;
     });
@@ -147,6 +154,13 @@ class _PlaylistEditScreenState extends State<PlaylistEditScreen> {
     );
 
     if (confirmed != true) return;
+    if (!mounted) return;
+
+    // ファイル削除には全ファイルアクセスが必要
+    if (!await ensureAllFilesAccess(context)) {
+      _showSnackBar('ファイルアクセスが許可されていないため削除できません');
+      return;
+    }
     if (!mounted) return;
 
     setState(() {

@@ -3,6 +3,7 @@ import 'package:localyt_music/screens/home_screen.dart';
 import 'package:localyt_music/screens/setting_screen.dart';
 import 'package:localyt_music/screens/playlists_screen.dart';
 import 'package:localyt_music/widgets/mini_player.dart';
+import 'package:localyt_music/widgets/storage_permission_dialog.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -12,6 +13,18 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 1;
+
+  @override
+  void initState() {
+    super.initState();
+    // ダウンロード済みファイルの削除・リネームに全ファイルアクセスが必要なため、
+    // 起動時に一度だけ許可状態を確認し、未許可なら設定へ誘導する。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ensureAllFilesAccess(context);
+      }
+    });
+  }
 
   static const List<Widget> _widgetOptions = <Widget>[
     HomeScreen(),

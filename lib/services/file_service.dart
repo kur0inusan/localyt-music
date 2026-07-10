@@ -21,10 +21,12 @@ class PlaylistsManager {
           .toList();
       List<Playlist> playlists = [];
       for (String playlistName in folderNames) {
-        final List<Song> songs = await PlaylistManager(
-          playlistName,
-        ).getPlaylistSongs(playlistName);
-        playlists.add(Playlist(playlistName, songs.length));
+        // 曲数の表示だけならメタデータ(ネイティブ呼び出し)は不要なので、
+        // ファイル数を数えるだけの軽量な方法を使う。大量の曲を持つ
+        // プレイリストがあると、一覧表示のたびに曲数分のMethodChannel
+        // 呼び出しが発生してUIがフリーズする原因になっていた。
+        final int count = await PlaylistManager(playlistName).countSongs();
+        playlists.add(Playlist(playlistName, count));
       }
       return playlists;
     } catch (e, stackTrace) {
@@ -95,7 +97,46 @@ class PlaylistsManager {
 
     final Directory playlistDir = Directory(p.join(storagePath, playlistName));
     if (await playlistDir.exists()) {
-      await playlistDir.delete(recursive: true);
+      // Android 11+ のスコープドストレージ(FUSE)では、ディレクトリ内の
+      // メディアファイルを全て削除すると空ディレクトリが OS 側で自動的に
+      // 消えることがある。その状態で Directory.delete(recursive:true) を
+      // 呼ぶと "No such file or directory" (path not found) で失敗するため、
+      // ファイルを個別に削除し、ディレクトリの未検出エラーは無視する。
+      try {
+        final List<FileSystemEntity> entries = playlistDir.listSync(
+          recursive: true,
+        );
+        // 深い階層のものから削除できるようにパスの長い順に並べる
+        entries.sort((a, b) => b.path.length.compareTo(a.path.length));
+        for (final FileSystemEntity entity in entries) {
+          try {
+            await entity.delete(recursive: true);
+          } on FileSystemException {
+            // 既に消えている等の未検出エラーは無視する
+          }
+        }
+      } on FileSystemException {
+        // 一覧取得自体の失敗は下の最終削除・検証に委ねる
+      }
+
+      // 残ったディレクトリ本体を削除。既に FUSE が消していれば未検出エラーに
+      // なるので無視する。
+      try {
+        if (await playlistDir.exists()) {
+          await playlistDir.delete(recursive: true);
+        }
+      } on FileSystemException {
+        // 既に存在しない場合は削除成功とみなす
+      }
+
+      // 本当に消えたか検証する。ファイルが残っている場合は権限などによる
+      // 実際の失敗なので、呼び出し元にエラーを伝える。
+      if (await playlistDir.exists() &&
+          playlistDir.listSync().isNotEmpty) {
+        throw const FileSystemException(
+          '一部のファイルを削除できませんでした',
+        );
+      }
     }
     await deletePlaylistURL(playlistName);
   }
@@ -111,6 +152,27 @@ class PlaylistManager {
   PlaylistManager(this.playlistName) {
     if (playlistName == '') {
       Exception('Playlist name is empty');
+    }
+  }
+
+  /// メタデータを取得せずに曲数だけを数える。プレイリスト一覧表示など
+  /// 曲数さえ分かればよい場面で使う軽量版(ネイティブ呼び出しなし)。
+  Future<int> countSongs() async {
+    final Directory playlistDir = Directory(
+      p.join(PlaylistsManager.storagePath, playlistName),
+    );
+    if (!await playlistDir.exists()) return 0;
+    try {
+      return await playlistDir
+          .list(recursive: true)
+          .where(
+            (entity) =>
+                entity is File &&
+                p.extension(entity.path).toLowerCase() == '.mp3',
+          )
+          .length;
+    } catch (_) {
+      return 0;
     }
   }
 
@@ -131,18 +193,33 @@ class PlaylistManager {
           .toList();
       songFiles.sort((a, b) => a.path.compareTo(b.path));
 
+      // 曲ごとに1回ずつMethodChannelを呼ぶと、曲数が多いプレイリストで
+      // ネイティブ側とのIPCラウンドトリップが直列に積み重なり著しく遅くなる。
+      // 全ファイルパスをまとめて1回のバッチ呼び出しで処理する。
+      final List<String> paths = songFiles.map((f) => f.path).toList();
+      List<Map<String, String>?> metadataList;
+      try {
+        final List<Object?>? result = await _methodChannel
+            .invokeMethod<List<Object?>>('getAudioMetadataBatch', {
+              'paths': paths,
+            });
+        metadataList = result
+                ?.map(
+                  (e) => e == null
+                      ? null
+                      : Map<String, String>.from(e as Map),
+                )
+                .toList() ??
+            List<Map<String, String>?>.filled(paths.length, null);
+      } catch (_) {
+        metadataList = List<Map<String, String>?>.filled(paths.length, null);
+      }
+
       List<Song> songs = [];
-      for (File songFile in songFiles) {
+      for (int i = 0; i < songFiles.length; i++) {
+        final File songFile = songFiles[i];
+        final Map<String, String>? metadata = metadataList[i];
         final String songName = p.basenameWithoutExtension(songFile.path);
-        Map<String, String>? metadata;
-        try {
-          metadata = await _methodChannel.invokeMapMethod<String, String>(
-            'getAudioMetadata',
-            {'path': songFile.path},
-          );
-        } catch (_) {
-          metadata = null;
-        }
         songs.add(
           Song(
             metadata?['title']?.isNotEmpty == true

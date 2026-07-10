@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:localyt_music/services/file_service.dart';
 import 'package:localyt_music/services/yt_dl_service.dart';
+import 'package:localyt_music/widgets/network_warning.dart';
 
 class AddPlaylistScreen extends StatefulWidget {
   const AddPlaylistScreen({super.key});
@@ -26,12 +27,32 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
     // Subscribe to download progress stream
     _progressSubscription = YTDLService.progressStream.listen(
       (progress) {
+        if (!mounted) return;
+        // ネイティブ側はエラー時に負の値(-1.0)を送ってくる
+        if (progress < 0) {
+          setState(() {
+            _isDownloading = false;
+            _statusText = 'ダウンロードに失敗しました';
+          });
+          _showSnackBar('ダウンロード中にエラーが発生しました');
+          return;
+        }
         setState(() {
           _progress = progress;
-          _statusText = 'ダウンロード中... ${progress.toStringAsFixed(1)}%';
+          if (progress >= 100.0) {
+            _isDownloading = false;
+            _statusText = 'ダウンロード完了';
+          } else {
+            _statusText = 'ダウンロード中... ${progress.toStringAsFixed(1)}%';
+          }
         });
+        // 完了したら一覧を更新させるため画面を閉じる
+        if (progress >= 100.0) {
+          Navigator.pop(context, true);
+        }
       },
       onError: (error) {
+        if (!mounted) return;
         setState(() {
           _isDownloading = false;
           _statusText = 'エラー';
@@ -100,6 +121,16 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
       return;
     }
 
+    // Wi-Fi以外の回線では通信量の警告を出し、続行するか確認する
+    if (!mounted) return;
+    final bool proceed = await confirmProceedOnCurrentNetwork(context);
+    if (!proceed) return;
+
+    // URLはダウンロード開始時点で保存する。ダウンロードはバックグラウンドの
+    // フォアグラウンドサービスで継続するため、この画面を閉じても同期用の
+    // URL情報が残るようにしておく。
+    await _playlistManager.savePlaylistURL(playlistName, url);
+
     setState(() {
       _isDownloading = true;
       _progress = 0.0;
@@ -107,33 +138,30 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
     });
 
     try {
+      // ダウンロードの実体はネイティブのサービスに委譲され、この呼び出しは
+      // すぐに返る。以降の進捗は progressStream 経由で受け取る。
       await YTDLService.startDownload(url, playlistName);
-
-      await _playlistManager.savePlaylistURL(playlistName, url);
-
       if (mounted) {
-        setState(() {
-          _isDownloading = false;
-          _statusText = 'ダウンロード完了';
-        });
-        _showSnackBar('プレイリストが追加されました');
-        Navigator.pop(context, true);
+        _showSnackBar('バックグラウンドでダウンロードを開始しました');
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _isDownloading = false;
-          _statusText = 'ダウンロードに失敗しました';
+          _statusText = 'ダウンロードの開始に失敗しました';
         });
         _showSnackBar('Download error: $e');
       }
+      // 開始に失敗した場合は保存したURLを取り消す
+      await _playlistManager.deletePlaylistURL(playlistName);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: !_isDownloading,
+      // ダウンロードはバックグラウンドで継続するため、いつでも画面を離れてよい
+      canPop: true,
       child: Scaffold(
         appBar: AppBar(title: const Text('プレイリストを追加')),
         body: SingleChildScrollView(

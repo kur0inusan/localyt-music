@@ -83,9 +83,7 @@ class AudioPlayerService {
     }
 
     _songs = List.unmodifiable(songs);
-    final List<Uri?> artUris = await Future.wait(
-      _songs.map(_resolveArtUri),
-    );
+    final List<Uri?> artUris = await _resolveArtUris(_songs);
     final List<AudioSource> children = [
       for (int i = 0; i < _songs.length; i++)
         AudioSource.uri(
@@ -184,6 +182,24 @@ class AudioPlayerService {
     } catch (_) {
       return null;
     }
+  }
+
+  /// 曲のアートワークURIをまとめて解決する。全曲を一度に並列実行すると
+  /// 曲数の多いプレイリストでネイティブ呼び出しが大量に同時発火してしまう
+  /// ため、一定数ずつバッチに分けて処理する。
+  Future<List<Uri?>> _resolveArtUris(List<Song> songs) async {
+    const int batchSize = 6;
+    final List<Uri?> results = List<Uri?>.filled(songs.length, null);
+    for (int start = 0; start < songs.length; start += batchSize) {
+      final int end = (start + batchSize > songs.length)
+          ? songs.length
+          : start + batchSize;
+      final List<Uri?> batch = await Future.wait(
+        songs.sublist(start, end).map(_resolveArtUri),
+      );
+      results.setRange(start, end, batch);
+    }
+    return results;
   }
 
   /// 通知・ロック画面に表示するアートワークの [Uri] を解決する。

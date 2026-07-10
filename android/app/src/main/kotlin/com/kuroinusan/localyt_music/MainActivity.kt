@@ -1,25 +1,29 @@
 package com.kuroinusan.localyt_music
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.MediaMetadataRetriever
-import android.media.MediaScannerConnection
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.youtubedl_android.YoutubeDLRequest
-import com.arthenica.ffmpegkit.FFmpegKit
-import com.arthenica.ffmpegkit.ReturnCode
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.Log
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.util.concurrent.Executors
 
 class MainActivity : AudioServiceActivity() {
     companion object {
@@ -27,9 +31,23 @@ class MainActivity : AudioServiceActivity() {
         private const val CHANNEL = "com.kuroinusan.localyt_music/youtubedl"
         private const val EVENT_CHANNEL = "com.kuroinusan.localyt_music/youtubedl_event"
         private const val PERMISSION_REQUEST_CODE = 1001
-    }
 
-    private var eventSink: EventChannel.EventSink? = null
+        /// ダウンロード進捗を Flutter へ流すための EventChannel シンク。
+        /// DownloadService(別プロセス相当のバックグラウンド)からも参照するため
+        /// companion に置く。アプリがバックグラウンドで Flutter エンジンが
+        /// 破棄されている間は null になり、その場合は通知のみで進捗を伝える。
+        @Volatile
+        private var progressSink: EventChannel.EventSink? = null
+
+        private val mainHandler = Handler(Looper.getMainLooper())
+
+        /// 進捗値(0.0〜100.0、エラー時は -1.0)を UI スレッド経由で Flutter へ送る。
+        fun emitProgress(value: Double) {
+            mainHandler.post {
+                progressSink?.success(value)
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -86,30 +104,75 @@ class MainActivity : AudioServiceActivity() {
                             result.error("INVALID_URL", "Only YouTube URLs are supported", null)
                         !isSafePlaylistName(path) ->
                             result.error("INVALID_NAME", "Invalid playlist name", null)
-                        else -> downloadPlaylist(url, path, result)
+                        else -> {
+                            // ダウンロードはフォアグラウンドサービスに委譲し、アプリを
+                            // 閉じても継続できるようにする。呼び出しは即座に完了させ、
+                            // 進捗は EventChannel(emitProgress) 経由で通知する。
+                            val intent = Intent(this, DownloadService::class.java).apply {
+                                putExtra(DownloadService.EXTRA_URL, url)
+                                putExtra(DownloadService.EXTRA_PATH, path)
+                            }
+                            ContextCompat.startForegroundService(this, intent)
+                            result.success(0)
+                        }
                     }
+                }
+                "getNetworkType" -> {
+                    result.success(getNetworkType())
+                }
+                "hasAllFilesAccess" -> {
+                    result.success(hasAllFilesAccess())
+                }
+                "requestAllFilesAccess" -> {
+                    requestAllFilesAccess()
+                    result.success(null)
                 }
                 "getAudioMetadata" -> {
                     val filePath = call.argument<String>("path")
                     if (filePath != null) {
-                        result.success(getAudioMetadata(filePath))
+                        // MediaMetadataRetrieverのファイルI/Oはメインスレッドで行うと
+                        // 曲数が多いときにUIをフリーズさせるため、別スレッドで実行する。
+                        Thread {
+                            val metadata = getAudioMetadata(filePath)
+                            Handler(Looper.getMainLooper()).post {
+                                result.success(metadata)
+                            }
+                        }.start()
                     } else {
                         result.error("INVALID_ARGS", "path is required", null)
+                    }
+                }
+                "getAudioMetadataBatch" -> {
+                    val paths = call.argument<List<String>>("paths")
+                    if (paths != null) {
+                        Thread {
+                            val metadataList = getAudioMetadataBatch(paths)
+                            Handler(Looper.getMainLooper()).post {
+                                result.success(metadataList)
+                            }
+                        }.start()
+                    } else {
+                        result.error("INVALID_ARGS", "paths is required", null)
                     }
                 }
                 "getAudioThumbnail" -> {
                     val filePath = call.argument<String>("path")
                     if (filePath != null) {
-                        val retriever = MediaMetadataRetriever()
-                        try {
-                            retriever.setDataSource(filePath)
-                            result.success(retriever.embeddedPicture)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to read audio thumbnail", e)
-                            result.success(null)
-                        } finally {
-                            retriever.release()
-                        }
+                        Thread {
+                            val retriever = MediaMetadataRetriever()
+                            val picture = try {
+                                retriever.setDataSource(filePath)
+                                retriever.embeddedPicture
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Failed to read audio thumbnail", e)
+                                null
+                            } finally {
+                                retriever.release()
+                            }
+                            Handler(Looper.getMainLooper()).post {
+                                result.success(picture)
+                            }
+                        }.start()
                     } else {
                         result.error("INVALID_ARGS", "path is required", null)
                     }
@@ -122,12 +185,68 @@ class MainActivity : AudioServiceActivity() {
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, EVENT_CHANNEL)
             .setStreamHandler(object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, sink: EventChannel.EventSink?) {
-                    eventSink = sink
+                    progressSink = sink
                 }
                 override fun onCancel(arguments: Any?) {
-                    eventSink = null
+                    progressSink = null
                 }
             })
+    }
+
+    /// 全ファイルアクセス(MANAGE_EXTERNAL_STORAGE)が付与されているか。
+    /// Android 10 以下では従来のストレージ権限で書き込めるため true を返す。
+    private fun hasAllFilesAccess(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            true
+        }
+    }
+
+    /// 全ファイルアクセスの許可画面を開く。Android 11+ でのみ意味を持つ。
+    private fun requestAllFilesAccess() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        if (Environment.isExternalStorageManager()) return
+        try {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            startActivity(intent)
+        } catch (e: Exception) {
+            // 一部端末ではアプリ指定のintentが解決できないため、一覧画面を開く
+            try {
+                startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+            } catch (e2: Exception) {
+                Log.e(TAG, "Failed to open all-files-access settings", e2)
+            }
+        }
+    }
+
+    /// 現在のネットワーク種別を返す。Wi-Fi/イーサネットは "wifi"、
+    /// モバイル回線は "mobile"、未接続は "none"、その他は "other"。
+    private fun getNetworkType(): String {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return "other"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val network = cm.activeNetwork ?: return "none"
+            val caps = cm.getNetworkCapabilities(network) ?: return "none"
+            return when {
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "wifi"
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "mobile"
+                else -> "other"
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            val info = cm.activeNetworkInfo ?: return "none"
+            @Suppress("DEPRECATION")
+            return when (info.type) {
+                ConnectivityManager.TYPE_WIFI, ConnectivityManager.TYPE_ETHERNET -> "wifi"
+                ConnectivityManager.TYPE_MOBILE -> "mobile"
+                else -> "other"
+            }
+        }
     }
 
     /// yt-dlpに渡すURLをYouTubeのhttps URLに限定する(Dart側の検証をすり抜けた場合の防波堤)
@@ -163,56 +282,18 @@ class MainActivity : AudioServiceActivity() {
         )
     }
 
-    private fun getPlaylistURLs(url: String): Array<String> {
-        val request = YoutubeDLRequest(url)
-        request.addOption("--dump-json")
-        request.addOption("--flat-playlist")
-        request.addOption("--yes-playlist")
-        request.addOption("--extractor-args", "youtube:player_client=android")
-        request.addOption("--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-        request.addOption("--no-update")
-        request.addOption("--no-warnings")
-
-        val response = YoutubeDL.getInstance().execute(request)
-        val playlistURLs = mutableListOf<String>()
-
-        fun addEntryURL(entry: org.json.JSONObject) {
-            val webpageURL = entry.optString("webpage_url")
-            val entryURL = entry.optString("url")
-            val videoID = entry.optString("id")
-
-            val resolvedURL = when {
-                webpageURL.startsWith("http") -> webpageURL
-                entryURL.startsWith("http") -> entryURL
-                entryURL.isNotBlank() -> "https://www.youtube.com/watch?v=$entryURL"
-                videoID.isNotBlank() -> "https://www.youtube.com/watch?v=$videoID"
-                else -> ""
-            }
-
-            if (resolvedURL.isNotBlank()) {
-                playlistURLs.add(resolvedURL)
-            }
+    /// 複数ファイルのメタデータを固定数のスレッドプールで並列抽出する。
+    /// 1曲ずつMethodChannelを呼ぶと曲数分のIPCラウンドトリップが直列に
+    /// 積み重なるため、まとめて1回の呼び出しで返す。
+    private fun getAudioMetadataBatch(paths: List<String>): List<Map<String, String>> {
+        if (paths.isEmpty()) return emptyList()
+        val executor = Executors.newFixedThreadPool(minOf(4, paths.size))
+        return try {
+            val futures = paths.map { path -> executor.submit<Map<String, String>> { getAudioMetadata(path) } }
+            futures.map { it.get() }
+        } finally {
+            executor.shutdown()
         }
-
-        response.out
-            .lineSequence()
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .forEach { line ->
-                val json = org.json.JSONObject(line)
-                val entries = json.optJSONArray("entries")
-
-                if (entries != null) {
-                    for (i in 0 until entries.length()) {
-                        val entry = entries.optJSONObject(i) ?: continue
-                        addEntryURL(entry)
-                    }
-                } else {
-                    addEntryURL(json)
-                }
-            }
-
-        return playlistURLs.toTypedArray()
     }
 
     private fun getAudioMetadata(filePath: String): Map<String, String> {
@@ -230,154 +311,5 @@ class MainActivity : AudioServiceActivity() {
         } finally {
             retriever.release()
         }
-    }
-
-    private fun hasEmbeddedPicture(file: File): Boolean {
-        val retriever = MediaMetadataRetriever()
-        return try {
-            retriever.setDataSource(file.absolutePath)
-            retriever.embeddedPicture != null
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to verify embedded thumbnail", e)
-            false
-        } finally {
-            retriever.release()
-        }
-    }
-
-    private fun downloadPlaylist(url: String, path: String, result: MethodChannel.Result) {
-        Thread {
-            try {
-                val playlistURLs = getPlaylistURLs(url)
-                Handler(Looper.getMainLooper()).post {
-                    eventSink?.success(0.0)
-                }
-                playlistURLs.forEachIndexed { index, playlistURL ->
-                    try {
-                        downloadSingleYT(playlistURL, path)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Skipping video that failed to download: $playlistURL", e)
-                    }
-                    val progress = ((index + 1).toDouble() / playlistURLs.size) * 100
-                    Handler(Looper.getMainLooper()).post {
-                        eventSink?.success(progress)
-                    }
-                }
-                Handler(Looper.getMainLooper()).post {
-                    result.success(0)
-                    eventSink?.success(100.0)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Playlist download failed", e)
-                Handler(Looper.getMainLooper()).post {
-                    result.error("DOWNLOAD_ERROR", e.message, null)
-                }
-            }
-        }.start()
-    }
-
-    private fun downloadSingleYT(url: String, path: String) {
-        val playlistDir = File(playlistBaseDir(), path)
-        if (!playlistDir.exists()) {
-            playlistDir.mkdirs()
-        }
-        val request = YoutubeDLRequest(url)
-        request.addOption("-o", "${playlistDir.absolutePath}/%(title)s.%(ext)s")
-        request.addOption("--no-playlist")
-        request.addOption("--extractor-args", "youtube:player_client=android")
-        request.addOption("--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-        request.addOption("--download-archive", playlistDir.absolutePath + "/downloaded.txt")
-        request.addOption("--no-update")
-        request.addOption("--no-warnings")
-        request.addOption("--windows-filenames")
-        request.addOption("--write-thumbnail")
-        request.addOption("--write-info-json")
-
-        YoutubeDL.getInstance().execute(request) { progress, etaInSeconds, _ ->
-            Log.d(TAG, "progress: $progress, eta: $etaInSeconds")
-        }
-
-        val downloadedFiles = playlistDir.listFiles { file ->
-            val ext = file.extension.lowercase()
-            ext != "txt" && ext != "mp3" && ext != "jpg" && ext != "png" && ext != "webp" && ext != "json"
-        }
-
-        downloadedFiles?.forEach { originalFile ->
-            val thumbnailFile = findThumbnailFile(playlistDir, originalFile.nameWithoutExtension)
-
-            val mp3File = File(playlistDir, "${originalFile.nameWithoutExtension}.mp3")
-            val infoFile = File(playlistDir, "${originalFile.nameWithoutExtension}.info.json")
-            val infoJson = if (infoFile.exists()) {
-                org.json.JSONObject(infoFile.readText())
-            } else {
-                null
-            }
-            val title = infoJson?.optString("title").orEmpty()
-            val artist = infoJson?.optString("artist").orEmpty()
-                .ifBlank { infoJson?.optString("uploader").orEmpty() }
-                .ifBlank { infoJson?.optString("channel").orEmpty() }
-
-            // 文字列連結ではなく引数配列で渡すことで、曲タイトル等に含まれる
-            // 引用符・空白による引数インジェクションを構造的に防ぐ
-            val args = mutableListOf("-i", originalFile.absolutePath)
-            if (thumbnailFile != null) {
-                args.addAll(listOf("-i", thumbnailFile.absolutePath))
-            }
-            args.add("-y")
-            args.addAll(listOf("-map", "0:a:0"))
-            if (thumbnailFile != null) {
-                args.addAll(listOf("-map", "1:v:0"))
-            } else {
-                args.add("-vn")
-            }
-            args.addAll(listOf("-c:a", "libmp3lame", "-b:a", "320k"))
-            if (thumbnailFile != null) {
-                args.addAll(listOf("-c:v", "mjpeg"))
-                args.addAll(listOf("-disposition:v", "attached_pic"))
-                args.addAll(listOf("-metadata:s:v", "title=Album cover"))
-                args.addAll(listOf("-metadata:s:v", "comment=Cover (front)"))
-            }
-            args.addAll(listOf("-id3v2_version", "3", "-write_id3v1", "1"))
-            if (title.isNotBlank()) {
-                args.addAll(listOf("-metadata", "title=$title"))
-            }
-            if (artist.isNotBlank()) {
-                args.addAll(listOf("-metadata", "artist=$artist"))
-            }
-            args.addAll(listOf("-metadata", "album=$path"))
-            args.add(mp3File.absolutePath)
-
-            Log.d(TAG, "Starting FFmpeg-kit conversion: ${originalFile.name}")
-
-            val session = FFmpegKit.executeWithArguments(args.toTypedArray())
-
-            if (ReturnCode.isSuccess(session.returnCode)) {
-                originalFile.delete()
-                if (thumbnailFile != null && hasEmbeddedPicture(mp3File)) {
-                    thumbnailFile.delete()
-                } else if (thumbnailFile != null) {
-                    Log.e(TAG, "Thumbnail was not embedded; keeping sidecar file: ${thumbnailFile.name}")
-                }
-                if (infoFile.exists()) {
-                    infoFile.delete()
-                }
-                MediaScannerConnection.scanFile(
-                    applicationContext,
-                    arrayOf(mp3File.absolutePath),
-                    arrayOf("audio/mpeg"),
-                    null
-                )
-                Log.d(TAG, "Conversion successful, deleted original: ${originalFile.name}")
-            } else {
-                Log.e(TAG, "FFmpeg-kit conversion failed: ${session.returnCode}")
-            }
-        }
-    }
-
-    private fun findThumbnailFile(dir: File, baseName: String): File? {
-        val extensions = arrayOf("jpg", "jpeg", "png", "webp")
-        return extensions
-            .map { extension -> File(dir, "$baseName.$extension") }
-            .firstOrNull { file -> file.exists() }
     }
 }
