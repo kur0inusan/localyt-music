@@ -303,23 +303,40 @@ class DownloadService : Service() {
 
     private fun downloadSingleYT(url: String, path: String) {
         val playlistDir = File(playlistBaseDir(), path)
-        if (!playlistDir.exists()) {
-            playlistDir.mkdirs()
+        if (!playlistDir.exists() && !playlistDir.mkdirs()) {
+            throw IllegalStateException("Failed to create playlist directory")
         }
-        val request = YoutubeDLRequest(url)
-        request.addOption("-o", "${playlistDir.absolutePath}/%(title)s.%(ext)s")
-        request.addOption("--no-playlist")
-        request.addOption("--extractor-args", "youtube:player_client=android")
-        request.addOption("--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-        request.addOption("--download-archive", playlistDir.absolutePath + "/downloaded.txt")
-        request.addOption("--no-update")
-        request.addOption("--no-warnings")
-        request.addOption("--windows-filenames")
-        request.addOption("--write-thumbnail")
-        request.addOption("--write-info-json")
 
-        YoutubeDL.getInstance().execute(request) { progress, etaInSeconds, _ ->
-            Log.d(TAG, "progress: $progress, eta: $etaInSeconds")
+        try {
+            val audioOnlyRequest = buildMediaDownloadRequest(
+                url = url,
+                playlistDir = playlistDir,
+                isPlaylist = false,
+                audioOnly = true
+            )
+            YoutubeDL.getInstance().execute(audioOnlyRequest) { progress, etaInSeconds, _ ->
+                Log.d(TAG, "audio-only progress: $progress, eta: $etaInSeconds")
+            }
+        } catch (audioOnlyError: Exception) {
+            Log.w(
+                TAG,
+                "Audio-only download failed; retrying with compatibility format: $url",
+                audioOnlyError
+            )
+            try {
+                val compatibilityRequest = buildMediaDownloadRequest(
+                    url = url,
+                    playlistDir = playlistDir,
+                    isPlaylist = false,
+                    audioOnly = false
+                )
+                YoutubeDL.getInstance().execute(compatibilityRequest) { progress, etaInSeconds, _ ->
+                    Log.d(TAG, "compatibility progress: $progress, eta: $etaInSeconds")
+                }
+            } catch (compatibilityError: Exception) {
+                compatibilityError.addSuppressed(audioOnlyError)
+                throw compatibilityError
+            }
         }
 
         convertDownloadedFiles(playlistDir, path)
@@ -332,10 +349,61 @@ class DownloadService : Service() {
             throw IllegalStateException("Failed to create playlist directory")
         }
 
+        try {
+            val audioOnlyRequest = buildMediaDownloadRequest(
+                url = url,
+                playlistDir = playlistDir,
+                isPlaylist = true,
+                audioOnly = true
+            )
+            YoutubeDL.getInstance().execute(audioOnlyRequest) { progress, etaInSeconds, _ ->
+                Log.d(TAG, "audio-only playlist update progress: $progress, eta: $etaInSeconds")
+            }
+        } catch (audioOnlyError: Exception) {
+            Log.w(
+                TAG,
+                "Audio-only playlist update failed; retrying with compatibility format: $url",
+                audioOnlyError
+            )
+            try {
+                val compatibilityRequest = buildMediaDownloadRequest(
+                    url = url,
+                    playlistDir = playlistDir,
+                    isPlaylist = true,
+                    audioOnly = false
+                )
+                YoutubeDL.getInstance().execute(compatibilityRequest) { progress, etaInSeconds, _ ->
+                    Log.d(TAG, "compatibility playlist update progress: $progress, eta: $etaInSeconds")
+                }
+            } catch (compatibilityError: Exception) {
+                compatibilityError.addSuppressed(audioOnlyError)
+                throw compatibilityError
+            }
+        }
+
+        // 全曲の確認が終わってから一度だけ走査し、今回取得した未変換ファイルを処理する。
+        convertDownloadedFiles(playlistDir, path)
+    }
+
+    private fun buildMediaDownloadRequest(
+        url: String,
+        playlistDir: File,
+        isPlaylist: Boolean,
+        audioOnly: Boolean
+    ): YoutubeDLRequest {
         val request = YoutubeDLRequest(url)
         request.addOption("-o", "${playlistDir.absolutePath}/%(title)s.%(ext)s")
-        request.addOption("--yes-playlist")
-        request.addOption("--extractor-args", "youtube:player_client=android")
+        request.addOption(if (isPlaylist) "--yes-playlist" else "--no-playlist")
+
+        if (audioOnly) {
+            // `/best` を付けると音声形式がない場合に動画付き形式へ暗黙に戻るため、
+            // 通信量を確実に抑えられる厳密な音声のみ指定にする。
+            request.addOption("-f", "bestaudio")
+        } else {
+            // 音声のみ取得が失敗した場合は、従来と同じ設定で互換性を優先する。
+            request.addOption("--extractor-args", "youtube:player_client=android")
+        }
+
         request.addOption("--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
         request.addOption("--download-archive", playlistDir.absolutePath + "/downloaded.txt")
         request.addOption("--no-update")
@@ -343,13 +411,7 @@ class DownloadService : Service() {
         request.addOption("--windows-filenames")
         request.addOption("--write-thumbnail")
         request.addOption("--write-info-json")
-
-        YoutubeDL.getInstance().execute(request) { progress, etaInSeconds, _ ->
-            Log.d(TAG, "playlist update progress: $progress, eta: $etaInSeconds")
-        }
-
-        // 全曲の確認が終わってから一度だけ走査し、今回取得した未変換ファイルを処理する。
-        convertDownloadedFiles(playlistDir, path)
+        return request
     }
 
     private fun convertDownloadedFiles(playlistDir: File, path: String) {
