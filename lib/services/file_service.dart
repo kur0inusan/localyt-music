@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:developer' as developer;
 import 'dart:io';
 import 'package:flutter/services.dart';
@@ -10,9 +11,31 @@ class PlaylistsManager {
   static const String storagePath =
       '/storage/emulated/0/Download/localyt_music';
   static const String playlistUrlFileName = 'playlist_url.txt';
+  static const String playlistOrderFileName = '.playlist_order.json';
 
   File _playlistUrlFile(String playlistName) =>
       File(p.join(storagePath, playlistName, playlistUrlFileName));
+
+  File get _playlistOrderFile =>
+      File(p.join(storagePath, playlistOrderFileName));
+
+  Future<List<String>> _readPlaylistOrder() async {
+    try {
+      if (!await _playlistOrderFile.exists()) return [];
+      final Object? decoded = jsonDecode(
+        await _playlistOrderFile.readAsString(),
+      );
+      if (decoded is! List) return [];
+      return decoded.whereType<String>().toList();
+    } catch (e, stackTrace) {
+      developer.log(
+        'Failed to read playlist order',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      return [];
+    }
+  }
 
   Future<List<Playlist>> getAllPlaylist() async {
     final Directory dir = Directory(storagePath);
@@ -23,8 +46,22 @@ class PlaylistsManager {
           .whereType<Directory>()
           .map((d) => p.basename(d.path)) // pathパッケージで安全にフォルダ名を抽出
           .toList();
+      // 順序ファイルがまだない既存ユーザーにも毎回同じ初期順序を表示する。
+      folderNames.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+      final List<String> savedOrder = await _readPlaylistOrder();
+      final Set<String> remainingNames = folderNames.toSet();
+      final List<String> orderedFolderNames = [];
+      for (final String playlistName in savedOrder) {
+        if (remainingNames.remove(playlistName)) {
+          orderedFolderNames.add(playlistName);
+        }
+      }
+      // 新規作成や外部から追加されたフォルダは、保存済み順序の末尾へ加える。
+      orderedFolderNames.addAll(folderNames.where(remainingNames.contains));
+
       List<Playlist> playlists = [];
-      for (String playlistName in folderNames) {
+      for (String playlistName in orderedFolderNames) {
         // 曲数の表示だけならメタデータ(ネイティブ呼び出し)は不要なので、
         // ファイル数を数えるだけの軽量な方法を使う。大量の曲を持つ
         // プレイリストがあると、一覧表示のたびに曲数分のMethodChannel
@@ -41,6 +78,52 @@ class PlaylistsManager {
       );
       return [];
     }
+  }
+
+  Future<void> savePlaylistOrder(List<String> playlistNames) async {
+    final Directory dir = Directory(storagePath);
+    if (!await dir.exists()) {
+      throw const FileSystemException('プレイリストフォルダが見つかりません');
+    }
+
+    final List<String> existingNames = await dir
+        .list()
+        .where((entity) => entity is Directory)
+        .map((entity) => p.basename(entity.path))
+        .toList();
+    existingNames.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    final Set<String> remainingNames = existingNames.toSet();
+    final List<String> normalizedOrder = [];
+    for (final String playlistName in playlistNames) {
+      if (remainingNames.remove(playlistName)) {
+        normalizedOrder.add(playlistName);
+      }
+    }
+    // 保存処理中に外部で追加されたフォルダも失わず末尾へ残す。
+    normalizedOrder.addAll(existingNames.where(remainingNames.contains));
+
+    await _playlistOrderFile.writeAsString(
+      jsonEncode(normalizedOrder),
+      flush: true,
+    );
+  }
+
+  Future<void> _replacePlaylistNameInOrder(
+    String oldName,
+    String newName,
+  ) async {
+    final List<String> savedOrder = await _readPlaylistOrder();
+    final int index = savedOrder.indexOf(oldName);
+    if (index < 0) return;
+    savedOrder[index] = newName;
+    await savePlaylistOrder(savedOrder);
+  }
+
+  Future<void> _removePlaylistFromOrder(String playlistName) async {
+    final List<String> savedOrder = await _readPlaylistOrder();
+    if (!savedOrder.remove(playlistName)) return;
+    await savePlaylistOrder(savedOrder);
   }
 
   Future<String> getPlayListURL(String playlistName) async {
@@ -144,6 +227,18 @@ class PlaylistsManager {
       await prefs.setString(newName, url);
       await prefs.remove(oldName);
     }
+
+    try {
+      await _replacePlaylistNameInOrder(oldName, newName);
+    } catch (e, stackTrace) {
+      // リネーム自体は完了しているため失敗扱いにはせず、次回一覧では
+      // 保存順序にない新しい名前として末尾へ表示する。
+      developer.log(
+        'Failed to update playlist order after rename',
+        error: e,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   Future<void> deletePlaylist(String playlistName) async {
@@ -185,14 +280,21 @@ class PlaylistsManager {
 
       // 本当に消えたか検証する。ファイルが残っている場合は権限などによる
       // 実際の失敗なので、呼び出し元にエラーを伝える。
-      if (await playlistDir.exists() &&
-          playlistDir.listSync().isNotEmpty) {
-        throw const FileSystemException(
-          '一部のファイルを削除できませんでした',
-        );
+      if (await playlistDir.exists() && playlistDir.listSync().isNotEmpty) {
+        throw const FileSystemException('一部のファイルを削除できませんでした');
       }
     }
     await deletePlaylistURL(playlistName);
+    try {
+      await _removePlaylistFromOrder(playlistName);
+    } catch (e, stackTrace) {
+      // 残った名前は一覧読み込み時に存在確認で除外される。
+      developer.log(
+        'Failed to update playlist order after deletion',
+        error: e,
+        stackTrace: stackTrace,
+      );
+    }
   }
 }
 
@@ -257,11 +359,10 @@ class PlaylistManager {
             .invokeMethod<List<Object?>>('getAudioMetadataBatch', {
               'paths': paths,
             });
-        metadataList = result
+        metadataList =
+            result
                 ?.map(
-                  (e) => e == null
-                      ? null
-                      : Map<String, String>.from(e as Map),
+                  (e) => e == null ? null : Map<String, String>.from(e as Map),
                 )
                 .toList() ??
             List<Map<String, String>?>.filled(paths.length, null);
