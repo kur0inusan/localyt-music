@@ -35,6 +35,12 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // このアプリの配布対象は64bit ARM端末のみ。FFmpeg・Pythonなどの
+        // 巨大なネイティブライブラリを他ABI向けに重複収録しない。
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     signingConfigs {
