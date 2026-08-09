@@ -41,11 +41,37 @@ class MainActivity : AudioServiceActivity() {
 
         private val mainHandler = Handler(Looper.getMainLooper())
 
-        /// 進捗値(0.0〜100.0、エラー時は -1.0)を UI スレッド経由で Flutter へ送る。
-        fun emitProgress(value: Double) {
+        /// ダウンロードイベントを UI スレッド経由で Flutter へ送る。
+        /// jobId を含めることで、別の画面や古いジョブのイベントを取り違えない。
+        private fun emitDownloadEvent(
+            type: String,
+            jobId: String,
+            path: String,
+            progress: Double? = null,
+            message: String? = null
+        ) {
+            val event = mutableMapOf<String, Any>(
+                "type" to type,
+                "jobId" to jobId,
+                "path" to path
+            )
+            progress?.let { event["progress"] = it }
+            message?.let { event["message"] = it }
             mainHandler.post {
-                progressSink?.success(value)
+                progressSink?.success(event)
             }
+        }
+
+        fun emitProgress(jobId: String, path: String, value: Double) {
+            emitDownloadEvent("progress", jobId, path, progress = value)
+        }
+
+        fun emitCompleted(jobId: String, path: String) {
+            emitDownloadEvent("completed", jobId, path, progress = 100.0)
+        }
+
+        fun emitError(jobId: String, path: String, message: String) {
+            emitDownloadEvent("error", jobId, path, message = message)
         }
     }
 
@@ -97,9 +123,13 @@ class MainActivity : AudioServiceActivity() {
                 "downloadYT" -> {
                     val url = call.argument<String>("url")
                     val path = call.argument<String>("path")
+                    val jobId = call.argument<String>("jobId")
+                    val isUpdate = call.argument<Boolean>("isUpdate") ?: false
                     when {
-                        url == null || path == null ->
-                            result.error("INVALID_ARGS", "url and path are required", null)
+                        url == null || path == null || jobId == null ->
+                            result.error("INVALID_ARGS", "url, path and jobId are required", null)
+                        DownloadService.isRunning ->
+                            result.error("DOWNLOAD_BUSY", "Another download is already running", null)
                         !isAllowedUrl(url) ->
                             result.error("INVALID_URL", "Only YouTube URLs are supported", null)
                         !isSafePlaylistName(path) ->
@@ -111,6 +141,8 @@ class MainActivity : AudioServiceActivity() {
                             val intent = Intent(this, DownloadService::class.java).apply {
                                 putExtra(DownloadService.EXTRA_URL, url)
                                 putExtra(DownloadService.EXTRA_PATH, path)
+                                putExtra(DownloadService.EXTRA_JOB_ID, jobId)
+                                putExtra(DownloadService.EXTRA_IS_UPDATE, isUpdate)
                             }
                             ContextCompat.startForegroundService(this, intent)
                             result.success(0)

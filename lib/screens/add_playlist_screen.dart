@@ -46,10 +46,6 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
             _statusText = 'ダウンロード中... ${progress.toStringAsFixed(1)}%';
           }
         });
-        // 完了したら一覧を更新させるため画面を閉じる
-        if (progress >= 100.0) {
-          Navigator.pop(context, true);
-        }
       },
       onError: (error) {
         if (!mounted) return;
@@ -138,11 +134,12 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
     });
 
     try {
-      // ダウンロードの実体はネイティブのサービスに委譲され、この呼び出しは
-      // すぐに返る。以降の進捗は progressStream 経由で受け取る。
+      // ダウンロードの実体はネイティブのサービスに委譲される。
+      // このFutureは実際の完了イベントを受け取るまで待機する。
       await YTDLService.startDownload(url, playlistName);
       if (mounted) {
-        _showSnackBar('バックグラウンドでダウンロードを開始しました');
+        _showSnackBar('ダウンロードが完了しました');
+        Navigator.pop(context, true);
       }
     } catch (e) {
       if (mounted) {

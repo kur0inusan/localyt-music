@@ -36,9 +36,19 @@ class _PlaylistEditScreenState extends State<PlaylistEditScreen> {
       (progress) {
         if (!mounted) return;
         if (!_isUpdating) return;
+        if (progress < 0) {
+          setState(() {
+            _isSaving = false;
+            _isUpdating = false;
+            _statusText = '更新に失敗しました';
+          });
+          return;
+        }
         setState(() {
           _progress = progress;
-          _statusText = '更新中... ${progress.toStringAsFixed(1)}%';
+          _statusText = progress >= 100.0
+              ? '更新完了'
+              : '更新中... ${progress.toStringAsFixed(1)}%';
         });
       },
       onError: (error) {
@@ -196,7 +206,11 @@ class _PlaylistEditScreenState extends State<PlaylistEditScreen> {
     });
 
     try {
-      await YTDLService.startDownload(_playlistUrl, widget.playlistName);
+      await YTDLService.startDownload(
+        _playlistUrl,
+        widget.playlistName,
+        isUpdate: true,
+      );
       if (!mounted) return;
       setState(() {
         _isSaving = false;

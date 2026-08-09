@@ -35,6 +35,8 @@ class DownloadService : Service() {
 
         const val EXTRA_URL = "url"
         const val EXTRA_PATH = "path"
+        const val EXTRA_JOB_ID = "job_id"
+        const val EXTRA_IS_UPDATE = "is_update"
 
         /// ダウンロードが実行中かどうか。多重起動を避けるために参照する。
         @Volatile
@@ -47,8 +49,10 @@ class DownloadService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val url = intent?.getStringExtra(EXTRA_URL)
         val path = intent?.getStringExtra(EXTRA_PATH)
+        val jobId = intent?.getStringExtra(EXTRA_JOB_ID)
+        val isUpdate = intent?.getBooleanExtra(EXTRA_IS_UPDATE, false) ?: false
 
-        if (url == null || path == null) {
+        if (url == null || path == null || jobId == null) {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -65,10 +69,14 @@ class DownloadService : Service() {
 
         Thread {
             try {
-                runDownload(url, path)
+                runDownload(url, path, jobId, isUpdate)
             } catch (e: Exception) {
                 Log.e(TAG, "Playlist download failed", e)
-                MainActivity.emitProgress(-1.0)
+                MainActivity.emitError(
+                    jobId,
+                    path,
+                    e.message ?: "Playlist download failed"
+                )
                 showCompletionNotification(path, success = false)
             } finally {
                 isRunning = false
@@ -80,24 +88,43 @@ class DownloadService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun runDownload(url: String, path: String) {
+    private fun runDownload(url: String, path: String, jobId: String, isUpdate: Boolean) {
+        MainActivity.emitProgress(jobId, path, 0.0)
+
+        // 更新時だけ、プレイリストURLをそのまま1回のyt-dlp実行へ渡す。
+        // --download-archive により既存曲はyt-dlp側で差分判定される。
+        if (isUpdate) {
+            updateProgressNotification(path, 0, 0)
+            downloadPlaylistYT(url, path)
+            MainActivity.emitCompleted(jobId, path)
+            showCompletionNotification(path, success = true)
+            return
+        }
+
         val playlistURLs = getPlaylistURLs(url)
-        MainActivity.emitProgress(0.0)
+        if (playlistURLs.isEmpty()) {
+            throw IllegalStateException("No videos were found in the playlist")
+        }
         updateProgressNotification(path, 0, playlistURLs.size)
 
+        var failureCount = 0
         playlistURLs.forEachIndexed { index, playlistURL ->
             try {
                 downloadSingleYT(playlistURL, path)
             } catch (e: Exception) {
                 Log.e(TAG, "Skipping video that failed to download: $playlistURL", e)
+                failureCount++
             }
             val completed = index + 1
             val progress = (completed.toDouble() / playlistURLs.size) * 100
-            MainActivity.emitProgress(progress)
+            MainActivity.emitProgress(jobId, path, progress)
             updateProgressNotification(path, completed, playlistURLs.size)
         }
 
-        MainActivity.emitProgress(100.0)
+        if (failureCount > 0) {
+            throw IllegalStateException("$failureCount video(s) failed to download")
+        }
+        MainActivity.emitCompleted(jobId, path)
         showCompletionNotification(path, success = true)
     }
 
@@ -281,6 +308,38 @@ class DownloadService : Service() {
             Log.d(TAG, "progress: $progress, eta: $etaInSeconds")
         }
 
+        convertDownloadedFiles(playlistDir, path)
+    }
+
+    /// 更新専用。プレイリスト全体を1回のyt-dlp実行で処理し、archiveにない曲だけを取得する。
+    private fun downloadPlaylistYT(url: String, path: String) {
+        val playlistDir = File(playlistBaseDir(), path)
+        if (!playlistDir.exists() && !playlistDir.mkdirs()) {
+            throw IllegalStateException("Failed to create playlist directory")
+        }
+
+        val request = YoutubeDLRequest(url)
+        request.addOption("-o", "${playlistDir.absolutePath}/%(title)s.%(ext)s")
+        request.addOption("--yes-playlist")
+        request.addOption("--extractor-args", "youtube:player_client=android")
+        request.addOption("--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+        request.addOption("--download-archive", playlistDir.absolutePath + "/downloaded.txt")
+        request.addOption("--no-update")
+        request.addOption("--no-warnings")
+        request.addOption("--windows-filenames")
+        request.addOption("--write-thumbnail")
+        request.addOption("--write-info-json")
+
+        YoutubeDL.getInstance().execute(request) { progress, etaInSeconds, _ ->
+            Log.d(TAG, "playlist update progress: $progress, eta: $etaInSeconds")
+        }
+
+        // 全曲の確認が終わってから一度だけ走査し、今回取得した未変換ファイルを処理する。
+        convertDownloadedFiles(playlistDir, path)
+    }
+
+    private fun convertDownloadedFiles(playlistDir: File, path: String) {
+
         val downloadedFiles = playlistDir.listFiles { file ->
             val ext = file.extension.lowercase()
             ext != "txt" && ext != "mp3" && ext != "jpg" && ext != "png" && ext != "webp" && ext != "json"
@@ -354,6 +413,7 @@ class DownloadService : Service() {
                 Log.d(TAG, "Conversion successful, deleted original: ${originalFile.name}")
             } else {
                 Log.e(TAG, "FFmpeg-kit conversion failed: ${session.returnCode}")
+                throw IllegalStateException("Failed to convert ${originalFile.name} to MP3")
             }
         }
     }
