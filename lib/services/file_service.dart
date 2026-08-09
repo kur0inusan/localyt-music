@@ -9,6 +9,10 @@ import 'package:localyt_music/models/playlist.dart';
 class PlaylistsManager {
   static const String storagePath =
       '/storage/emulated/0/Download/localyt_music';
+  static const String playlistUrlFileName = 'playlist_url.txt';
+
+  File _playlistUrlFile(String playlistName) =>
+      File(p.join(storagePath, playlistName, playlistUrlFileName));
 
   Future<List<Playlist>> getAllPlaylist() async {
     final Directory dir = Directory(storagePath);
@@ -40,21 +44,71 @@ class PlaylistsManager {
   }
 
   Future<String> getPlayListURL(String playlistName) async {
-    if (playlistName == '') return '';
+    if (playlistName.isEmpty) return '';
     final SharedPreferences prefs = await SharedPreferences.getInstance();
-    return prefs.getString(playlistName) ?? '';
+    final File urlFile = _playlistUrlFile(playlistName);
+
+    // 外部ストレージ上のファイルを正とする。アプリ更新や再インストールで
+    // SharedPreferences が失われても、プレイリストフォルダから復元できる。
+    try {
+      if (await urlFile.exists()) {
+        final String fileUrl = (await urlFile.readAsString()).trim();
+        if (fileUrl.isNotEmpty) {
+          if (prefs.getString(playlistName) != fileUrl) {
+            await prefs.setString(playlistName, fileUrl);
+          }
+          return fileUrl;
+        }
+      }
+    } catch (e, stackTrace) {
+      developer.log(
+        'Failed to read playlist URL file',
+        error: e,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final String savedUrl = prefs.getString(playlistName) ?? '';
+    if (savedUrl.isNotEmpty) {
+      // 旧バージョンで作られたプレイリストは、従来の保存値から一度だけ
+      // URLファイルを作って新しい保存方式へ移行する。
+      try {
+        final Directory playlistDir = urlFile.parent;
+        if (await playlistDir.exists()) {
+          await urlFile.writeAsString('$savedUrl\n', flush: true);
+        }
+      } catch (e, stackTrace) {
+        developer.log(
+          'Failed to migrate playlist URL to file',
+          error: e,
+          stackTrace: stackTrace,
+        );
+      }
+    }
+    return savedUrl;
   }
 
   Future<void> savePlaylistURL(String playlistName, String url) async {
     if (playlistName.isEmpty || url.isEmpty) return;
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setString(playlistName, url);
+
+    // 既にフォルダがある場合はファイル側も更新する。新規追加では
+    // DownloadService がフォルダ作成直後に同じファイルを書き込む。
+    final File urlFile = _playlistUrlFile(playlistName);
+    if (await urlFile.parent.exists()) {
+      await urlFile.writeAsString('${url.trim()}\n', flush: true);
+    }
   }
 
   Future<void> deletePlaylistURL(String playlistName) async {
     if (playlistName.isEmpty) return;
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.remove(playlistName);
+    final File urlFile = _playlistUrlFile(playlistName);
+    if (await urlFile.exists()) {
+      await urlFile.delete();
+    }
   }
 
   Future<bool> playlistExists(String playlistName) async {

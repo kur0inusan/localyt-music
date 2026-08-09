@@ -149,8 +149,11 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
         });
         _showSnackBar('Download error: $e');
       }
-      // 開始に失敗した場合は保存したURLを取り消す
-      await _playlistManager.deletePlaylistURL(playlistName);
+      // サービス開始前の失敗なら保存情報を取り消す。ダウンロード途中で
+      // フォルダが作られている場合は、再試行できるようURLを残しておく。
+      if (!await _playlistManager.playlistExists(playlistName)) {
+        await _playlistManager.deletePlaylistURL(playlistName);
+      }
     }
   }
 

@@ -32,6 +32,7 @@ class DownloadService : Service() {
         private const val CHANNEL_ID = "localyt_download"
         private const val PROGRESS_NOTIFICATION_ID = 2001
         private const val COMPLETE_NOTIFICATION_ID = 2002
+        private const val PLAYLIST_URL_FILE_NAME = "playlist_url.txt"
 
         const val EXTRA_URL = "url"
         const val EXTRA_PATH = "path"
@@ -91,6 +92,11 @@ class DownloadService : Service() {
     private fun runDownload(url: String, path: String, jobId: String, isUpdate: Boolean) {
         MainActivity.emitProgress(jobId, path, 0.0)
 
+        // SharedPreferences はアプリ側のデータなので、再インストール等で失われる
+        // 可能性がある。ダウンロード先にもURLを保存し、音楽ファイルと一緒に
+        // 外部ストレージへ残しておく。
+        savePlaylistUrl(url, path)
+
         // 更新時だけ、プレイリストURLをそのまま1回のyt-dlp実行へ渡す。
         // --download-archive により既存曲はyt-dlp側で差分判定される。
         if (isUpdate) {
@@ -126,6 +132,14 @@ class DownloadService : Service() {
         }
         MainActivity.emitCompleted(jobId, path)
         showCompletionNotification(path, success = true)
+    }
+
+    private fun savePlaylistUrl(url: String, path: String) {
+        val playlistDir = File(playlistBaseDir(), path)
+        if (!playlistDir.exists() && !playlistDir.mkdirs()) {
+            throw IllegalStateException("Failed to create playlist directory")
+        }
+        File(playlistDir, PLAYLIST_URL_FILE_NAME).writeText("$url\n")
     }
 
     // ---- 通知まわり ------------------------------------------------------
