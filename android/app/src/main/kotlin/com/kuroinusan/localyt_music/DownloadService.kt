@@ -33,6 +33,7 @@ class DownloadService : Service() {
         private const val PROGRESS_NOTIFICATION_ID = 2001
         private const val COMPLETE_NOTIFICATION_ID = 2002
         private const val PLAYLIST_URL_FILE_NAME = "playlist_url.txt"
+        private const val ARCHIVE_FILE_NAME = "downloaded.txt"
 
         const val EXTRA_URL = "url"
         const val EXTRA_PATH = "path"
@@ -97,19 +98,20 @@ class DownloadService : Service() {
         // 外部ストレージへ残しておく。
         savePlaylistUrl(url, path)
 
-        // 更新時だけ、プレイリストURLをそのまま1回のyt-dlp実行へ渡す。
-        // --download-archive により既存曲はyt-dlp側で差分判定される。
-        if (isUpdate) {
-            updateProgressNotification(path, 0, 0)
-            downloadPlaylistYT(url, path)
-            MainActivity.emitCompleted(jobId, path)
-            showCompletionNotification(path, success = true)
-            return
+        val entries = getPlaylistEntries(url)
+        if (entries.isEmpty()) {
+            throw IllegalStateException("No videos were found in the playlist")
         }
 
-        val playlistURLs = getPlaylistURLs(url)
-        if (playlistURLs.isEmpty()) {
-            throw IllegalStateException("No videos were found in the playlist")
+        // 更新時は downloaded.txt に記録済みの曲を yt-dlp を起動する前に除外する。
+        // プレイリストを丸ごと1回のyt-dlpに渡すと、削除・非公開動画が1本でも
+        // あると全体が失敗扱いになり、MP3変換まで進まなかった。
+        val playlistURLs = if (isUpdate) {
+            val archivedIds = readArchivedIds(path)
+            entries.filter { it.archiveId == null || it.archiveId !in archivedIds }
+                .map { it.url }
+        } else {
+            entries.map { it.url }
         }
         updateProgressNotification(path, 0, playlistURLs.size)
 
@@ -140,6 +142,16 @@ class DownloadService : Service() {
             throw IllegalStateException("Failed to create playlist directory")
         }
         File(playlistDir, PLAYLIST_URL_FILE_NAME).writeText("$url\n")
+    }
+
+    /// yt-dlp の --download-archive ファイルから記録済みの "<extractor> <id>" を読む。
+    private fun readArchivedIds(path: String): Set<String> {
+        val archiveFile = File(File(playlistBaseDir(), path), ARCHIVE_FILE_NAME)
+        if (!archiveFile.exists()) return emptySet()
+        return archiveFile.readLines()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet()
     }
 
     // ---- 通知まわり ------------------------------------------------------
@@ -249,7 +261,10 @@ class DownloadService : Service() {
         )
     }
 
-    private fun getPlaylistURLs(url: String): Array<String> {
+    /// archiveId は downloaded.txt の行と同じ "<extractor> <id>" 形式。IDが取れない場合は null。
+    private data class PlaylistEntry(val url: String, val archiveId: String?)
+
+    private fun getPlaylistEntries(url: String): List<PlaylistEntry> {
         val request = YoutubeDLRequest(url)
         request.addOption("--dump-json")
         request.addOption("--flat-playlist")
@@ -260,7 +275,7 @@ class DownloadService : Service() {
         request.addOption("--no-warnings")
 
         val response = YoutubeDL.getInstance().execute(request)
-        val playlistURLs = mutableListOf<String>()
+        val playlistEntries = mutableListOf<PlaylistEntry>()
 
         fun addEntryURL(entry: org.json.JSONObject) {
             val webpageURL = entry.optString("webpage_url")
@@ -276,7 +291,10 @@ class DownloadService : Service() {
             }
 
             if (resolvedURL.isNotBlank()) {
-                playlistURLs.add(resolvedURL)
+                // yt-dlp は archive に "extractor_key(小文字) id" を書き込む。
+                val extractor = entry.optString("ie_key").ifBlank { "Youtube" }.lowercase()
+                val archiveId = if (videoID.isNotBlank()) "$extractor $videoID" else null
+                playlistEntries.add(PlaylistEntry(resolvedURL, archiveId))
             }
         }
 
@@ -298,7 +316,7 @@ class DownloadService : Service() {
                 }
             }
 
-        return playlistURLs.toTypedArray()
+        return playlistEntries
     }
 
     private fun downloadSingleYT(url: String, path: String) {
@@ -311,7 +329,6 @@ class DownloadService : Service() {
             val audioOnlyRequest = buildMediaDownloadRequest(
                 url = url,
                 playlistDir = playlistDir,
-                isPlaylist = false,
                 audioOnly = true
             )
             YoutubeDL.getInstance().execute(audioOnlyRequest) { progress, etaInSeconds, _ ->
@@ -327,7 +344,6 @@ class DownloadService : Service() {
                 val compatibilityRequest = buildMediaDownloadRequest(
                     url = url,
                     playlistDir = playlistDir,
-                    isPlaylist = false,
                     audioOnly = false
                 )
                 YoutubeDL.getInstance().execute(compatibilityRequest) { progress, etaInSeconds, _ ->
@@ -342,58 +358,14 @@ class DownloadService : Service() {
         convertDownloadedFiles(playlistDir, path)
     }
 
-    /// 更新専用。プレイリスト全体を1回のyt-dlp実行で処理し、archiveにない曲だけを取得する。
-    private fun downloadPlaylistYT(url: String, path: String) {
-        val playlistDir = File(playlistBaseDir(), path)
-        if (!playlistDir.exists() && !playlistDir.mkdirs()) {
-            throw IllegalStateException("Failed to create playlist directory")
-        }
-
-        try {
-            val audioOnlyRequest = buildMediaDownloadRequest(
-                url = url,
-                playlistDir = playlistDir,
-                isPlaylist = true,
-                audioOnly = true
-            )
-            YoutubeDL.getInstance().execute(audioOnlyRequest) { progress, etaInSeconds, _ ->
-                Log.d(TAG, "audio-only playlist update progress: $progress, eta: $etaInSeconds")
-            }
-        } catch (audioOnlyError: Exception) {
-            Log.w(
-                TAG,
-                "Audio-only playlist update failed; retrying with compatibility format: $url",
-                audioOnlyError
-            )
-            try {
-                val compatibilityRequest = buildMediaDownloadRequest(
-                    url = url,
-                    playlistDir = playlistDir,
-                    isPlaylist = true,
-                    audioOnly = false
-                )
-                YoutubeDL.getInstance().execute(compatibilityRequest) { progress, etaInSeconds, _ ->
-                    Log.d(TAG, "compatibility playlist update progress: $progress, eta: $etaInSeconds")
-                }
-            } catch (compatibilityError: Exception) {
-                compatibilityError.addSuppressed(audioOnlyError)
-                throw compatibilityError
-            }
-        }
-
-        // 全曲の確認が終わってから一度だけ走査し、今回取得した未変換ファイルを処理する。
-        convertDownloadedFiles(playlistDir, path)
-    }
-
     private fun buildMediaDownloadRequest(
         url: String,
         playlistDir: File,
-        isPlaylist: Boolean,
         audioOnly: Boolean
     ): YoutubeDLRequest {
         val request = YoutubeDLRequest(url)
         request.addOption("-o", "${playlistDir.absolutePath}/%(title)s.%(ext)s")
-        request.addOption(if (isPlaylist) "--yes-playlist" else "--no-playlist")
+        request.addOption("--no-playlist")
 
         if (audioOnly) {
             // `/best` を付けると音声形式がない場合に動画付き形式へ暗黙に戻るため、
@@ -405,7 +377,7 @@ class DownloadService : Service() {
         }
 
         request.addOption("--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-        request.addOption("--download-archive", playlistDir.absolutePath + "/downloaded.txt")
+        request.addOption("--download-archive", File(playlistDir, ARCHIVE_FILE_NAME).absolutePath)
         request.addOption("--no-update")
         request.addOption("--no-warnings")
         request.addOption("--windows-filenames")
