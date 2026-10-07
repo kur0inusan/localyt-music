@@ -370,6 +370,17 @@ class PlaylistManager {
         metadataList = List<Map<String, String>?>.filled(paths.length, null);
       }
 
+      // 追加日順の並べ替え用。1曲ずつ待つと曲数分直列になるため並列に取得する。
+      final List<DateTime?> addedAtList = await Future.wait(
+        songFiles.map((file) async {
+          try {
+            return await file.lastModified();
+          } on FileSystemException {
+            return null;
+          }
+        }),
+      );
+
       List<Song> songs = [];
       for (int i = 0; i < songFiles.length; i++) {
         final File songFile = songFiles[i];
@@ -386,6 +397,7 @@ class PlaylistManager {
             metadata?['artist'] ?? '',
             songFile.path,
             _findSidecarThumbnail(songFile),
+            addedAtList[i],
           ),
         );
       }
