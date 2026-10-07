@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:localyt_music/models/playlist.dart';
@@ -7,6 +9,7 @@ import 'package:localyt_music/screens/playlist_screen.dart';
 import 'package:localyt_music/screens/song_player_screen.dart';
 import 'package:localyt_music/services/audio_player_service.dart';
 import 'package:localyt_music/services/file_service.dart';
+import 'package:localyt_music/services/play_history_service.dart';
 import 'package:localyt_music/widgets/song_thumbnail.dart';
 
 /// ホーム画面。再生中の曲と保存済みプレイリストへのクイックアクセスを表示する。
@@ -68,6 +71,7 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         children: [
           const _NowPlayingCard(),
+          const _PlayHistorySections(),
           _SectionTitle(
             title: 'プレイリスト',
             trailing: TextButton.icon(
@@ -104,7 +108,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-/// 再生中の曲を大きめのカードで表示する。何も再生していなければ非表示。
+/// 再生中の曲を大きめのカードで表示する。何も読み込まれていなければ
+/// 前回の続きから再生するカードを、それも無ければ何も表示しない。
 class _NowPlayingCard extends StatelessWidget {
   const _NowPlayingCard();
 
@@ -124,7 +129,7 @@ class _NowPlayingCard extends StatelessWidget {
             index == null ||
             index < 0 ||
             index >= songs.length) {
-          return const SizedBox.shrink();
+          return const _ResumeCard();
         }
         final Song song = songs[index];
 
@@ -202,6 +207,260 @@ class _NowPlayingCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// アプリ起動直後など何も読み込まれていないときに、前回の続きから再生するカード。
+class _ResumeCard extends StatefulWidget {
+  const _ResumeCard();
+
+  @override
+  State<_ResumeCard> createState() => _ResumeCardState();
+}
+
+class _ResumeCardState extends State<_ResumeCard> {
+  bool _isResuming = false;
+
+  Future<void> _resume() async {
+    if (_isResuming) return;
+    setState(() {
+      _isResuming = true;
+    });
+    bool resumed = false;
+    try {
+      resumed = await AudioPlayerService.instance.resumeLastSession();
+    } catch (_) {
+      resumed = false;
+    }
+    // 復元に成功すると再生中カードに置き換わり、このWidgetは破棄される。
+    if (!mounted) return;
+    setState(() {
+      _isResuming = false;
+    });
+    if (!resumed) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('前回の曲が見つかりませんでした')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ResumePoint? point = PlayHistoryService.instance.resumePoint;
+    if (point == null || !File(point.song.path).existsSync()) {
+      return const SizedBox.shrink();
+    }
+    final ColorScheme colorScheme = Theme.of(context).colorScheme;
+    final TextTheme textTheme = Theme.of(context).textTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _SectionTitle(title: '続きから再生'),
+        const SizedBox(height: 4),
+        Card(
+          color: colorScheme.secondaryContainer,
+          child: InkWell(
+            onTap: _resume,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  SongThumbnail(song: point.song, size: 64, borderRadius: 8),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          point.song.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: colorScheme.onSecondaryContainer,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          [
+                            if (point.song.artist.isNotEmpty) point.song.artist,
+                            '${_formatPosition(point.position)} から',
+                          ].join(' ・ '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSecondaryContainer.withValues(
+                              alpha: 0.8,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_isResuming)
+                    const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  else
+                    IconButton.filled(
+                      onPressed: _resume,
+                      icon: const Icon(Icons.play_arrow),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
+      ],
+    );
+  }
+
+  static String _formatPosition(Duration position) {
+    final int hours = position.inHours;
+    final String minutes = position.inMinutes
+        .remainder(60)
+        .toString()
+        .padLeft(hours > 0 ? 2 : 1, '0');
+    final String seconds = position.inSeconds
+        .remainder(60)
+        .toString()
+        .padLeft(2, '0');
+    return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
+  }
+}
+
+/// 最近再生した曲とよく聴く曲。タップするとそのセクションの曲順で再生する。
+class _PlayHistorySections extends StatelessWidget {
+  const _PlayHistorySections();
+
+  void _play(BuildContext context, List<Song> songs, int index) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) =>
+            SongPlayerScreen(songs: songs, initialIndex: index),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final PlayHistoryService history = PlayHistoryService.instance;
+    final ColorScheme colorScheme = Theme.of(context).colorScheme;
+    final TextTheme textTheme = Theme.of(context).textTheme;
+
+    return ListenableBuilder(
+      listenable: history,
+      builder: (context, _) {
+        final List<Song> recent = history.recentSongs();
+        final List<({Song song, int count})> frequent = history
+            .frequentSongs();
+        final List<Song> frequentSongs = [
+          for (final entry in frequent) entry.song,
+        ];
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (recent.isNotEmpty) ...[
+              const _SectionTitle(title: '最近再生した曲'),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 160,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: recent.length,
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(width: 12),
+                  itemBuilder: (context, index) {
+                    final Song song = recent[index];
+                    return SizedBox(
+                      width: 112,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: () => _play(context, recent, index),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SongThumbnail(
+                              song: song,
+                              size: 112,
+                              borderRadius: 8,
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              song.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: textTheme.bodySmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            if (song.artist.isNotEmpty)
+                              Text(
+                                song.artist,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: textTheme.labelSmall?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
+            if (frequent.isNotEmpty) ...[
+              const _SectionTitle(title: 'よく聴く曲'),
+              const SizedBox(height: 4),
+              Card(
+                margin: EdgeInsets.zero,
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  children: [
+                    for (int i = 0; i < frequent.length; i++)
+                      ListTile(
+                        leading: SongThumbnail(song: frequent[i].song),
+                        title: Text(
+                          frequent[i].song.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: frequent[i].song.artist.isEmpty
+                            ? null
+                            : Text(
+                                frequent[i].song.artist,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                        trailing: Text(
+                          '${frequent[i].count}回',
+                          style: textTheme.labelMedium?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        onTap: () => _play(context, frequentSongs, i),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
           ],
         );
       },

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 // import 'package:localyt_music/screens/test_download_screen.dart';
 import 'package:localyt_music/screens/main_screen.dart';
+import 'package:localyt_music/services/play_history_service.dart';
 import 'package:localyt_music/theme/app_theme.dart';
 import 'package:localyt_music/theme/theme_controller.dart';
 
@@ -13,6 +14,7 @@ Future<void> main() async {
     androidNotificationOngoing: true,
   );
   await ThemeController.instance.load();
+  await PlayHistoryService.instance.load();
 
   runApp(const LocalYtMusicApp());
 }

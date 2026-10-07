@@ -7,6 +7,7 @@ import 'package:just_audio_background/just_audio_background.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:localyt_music/models/song.dart';
+import 'package:localyt_music/services/play_history_service.dart';
 
 /// アプリ全体で共有する単一の [AudioPlayer] を保持するサービス。
 ///
@@ -20,7 +21,18 @@ class AudioPlayerService {
         player.seek(Duration.zero, index: 0);
       }
     });
+    player.currentIndexStream.listen((_) => _onPlaybackChanged());
+    player.playingStream.listen((_) => _onPlaybackChanged());
+    player.positionStream.listen((_) {
+      if (!player.playing) return;
+      if (DateTime.now().difference(_lastResumeSave) < _resumeSaveInterval) {
+        return;
+      }
+      _saveResumePoint();
+    });
   }
+
+  static const Duration _resumeSaveInterval = Duration(seconds: 10);
 
   static final AudioPlayerService instance = AudioPlayerService._internal();
 
@@ -34,6 +46,11 @@ class AudioPlayerService {
   final Map<String, Future<Uint8List?>> _thumbnailLoaders = {};
 
   List<Song> _songs = const [];
+
+  // キューの差し替え中は currentIndex が旧キューを指すため、履歴・位置を記録しない。
+  bool _isReplacingQueue = false;
+  String? _lastRecordedPath;
+  DateTime _lastResumeSave = DateTime.fromMillisecondsSinceEpoch(0);
 
   List<Song> get songs => _songs;
 
@@ -64,17 +81,22 @@ class AudioPlayerService {
   }
 
   /// プレイリストを読み込む。[autoPlay] が false の場合は再生を開始しない。
+  /// [initialPosition] を指定すると、その位置から再生する(続きから再生用)。
   Future<void> loadPlaylist(
     List<Song> songs,
     int initialIndex, {
     bool autoPlay = true,
+    Duration? initialPosition,
   }) async {
     if (songs.isEmpty) return;
     final int clampedIndex = initialIndex.clamp(0, songs.length - 1);
 
     if (_isSamePlaylist(songs)) {
-      if (player.currentIndex != clampedIndex) {
-        await player.seek(Duration.zero, index: clampedIndex);
+      if (player.currentIndex != clampedIndex || initialPosition != null) {
+        await player.seek(
+          initialPosition ?? Duration.zero,
+          index: clampedIndex,
+        );
       }
       if (autoPlay) {
         unawaited(player.play());
@@ -82,26 +104,75 @@ class AudioPlayerService {
       return;
     }
 
-    _songs = List.unmodifiable(songs);
-    final List<Uri?> artUris = await _resolveArtUris(_songs);
-    final List<AudioSource> children = [
-      for (int i = 0; i < _songs.length; i++)
-        AudioSource.uri(
-          Uri.file(_songs[i].path),
-          tag: MediaItem(
-            id: _songs[i].path,
-            title: _songs[i].title,
-            artist: _songs[i].artist.isEmpty ? null : _songs[i].artist,
-            album: _songs[i].album.isEmpty ? null : _songs[i].album,
-            artUri: artUris[i],
+    _isReplacingQueue = true;
+    try {
+      _songs = List.unmodifiable(songs);
+      final List<Uri?> artUris = await _resolveArtUris(_songs);
+      final List<AudioSource> children = [
+        for (int i = 0; i < _songs.length; i++)
+          AudioSource.uri(
+            Uri.file(_songs[i].path),
+            tag: MediaItem(
+              id: _songs[i].path,
+              title: _songs[i].title,
+              artist: _songs[i].artist.isEmpty ? null : _songs[i].artist,
+              album: _songs[i].album.isEmpty ? null : _songs[i].album,
+              artUri: artUris[i],
+            ),
           ),
-        ),
-    ];
+      ];
 
-    await player.setAudioSources(children, initialIndex: clampedIndex);
+      await player.setAudioSources(
+        children,
+        initialIndex: clampedIndex,
+        initialPosition: initialPosition,
+      );
+    } finally {
+      _isReplacingQueue = false;
+    }
+    PlayHistoryService.instance.saveResumeQueue(_songs);
+    _saveResumePoint();
     if (autoPlay) {
       unawaited(player.play());
     }
+  }
+
+  /// 前回終了時の再生キューと位置を復元して再生する。復元できなければ false。
+  Future<bool> resumeLastSession() async {
+    final PlayHistoryService history = PlayHistoryService.instance;
+    final ResumePoint? point = history.resumePoint;
+    if (point == null) return false;
+
+    final List<Song> queue = (await history.loadResumeQueue())
+        .where((song) => File(song.path).existsSync())
+        .toList();
+    final int index = queue.indexWhere((song) => song.path == point.song.path);
+    if (index < 0) return false;
+
+    await loadPlaylist(queue, index, initialPosition: point.position);
+    return true;
+  }
+
+  /// 再生中の曲が切り替わったとき、または再生が始まったときに履歴へ記録する。
+  /// 一時停止→再開や1曲リピートでは同じ曲を重複して数えない。
+  void _onPlaybackChanged() {
+    if (_isReplacingQueue) return;
+    final Song? song = currentSong;
+    if (song == null) return;
+    if (player.playing && song.path != _lastRecordedPath) {
+      _lastRecordedPath = song.path;
+      PlayHistoryService.instance.recordPlay(song);
+    }
+    _saveResumePoint();
+  }
+
+  void _saveResumePoint() {
+    if (_isReplacingQueue) return;
+    final int? index = currentIndex;
+    final Song? song = currentSong;
+    if (index == null || song == null) return;
+    _lastResumeSave = DateTime.now();
+    PlayHistoryService.instance.saveResumePoint(song, index, player.position);
   }
 
   Future<void> playPause() async {

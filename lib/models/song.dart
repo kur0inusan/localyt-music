@@ -18,4 +18,31 @@ class Song {
   ]);
 
   String get albam => album;
+
+  Map<String, Object?> toJson() => {
+    'title': title,
+    'album': album,
+    'artist': artist,
+    'path': path,
+    'thumbnailPath': thumbnailPath,
+  };
+
+  /// 保存データから復元する。パスが無い等の不正なデータは null を返す。
+  static Song? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final Object? path = json['path'];
+    if (path is! String || path.isEmpty) return null;
+    String text(String key) {
+      final Object? value = json[key];
+      return value is String ? value : '';
+    }
+
+    return Song(
+      text('title'),
+      text('album'),
+      text('artist'),
+      path,
+      text('thumbnailPath'),
+    );
+  }
 }
