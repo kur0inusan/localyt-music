@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 以下の自動バックアップ設定。
+     再生履歴・続きから再生の状態は再インストールでリセットするため除外する。
+     ファイルは lib/services/play_history_service.dart が
+     getApplicationSupportDirectory() (= files/) に保存している。 -->
+<full-backup-content>
+    <exclude domain="file" path="play_history.json" />
+    <exclude domain="file" path="resume_state.json" />
+    <exclude domain="file" path="resume_queue.json" />
+</full-backup-content>

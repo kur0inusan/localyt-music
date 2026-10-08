@@ -332,6 +332,42 @@ class PlaylistManager {
     }
   }
 
+  /// メタデータを読まずにファイル名から曲一覧を作る。ホーム画面のおすすめなど、
+  /// 全プレイリストを横断する場面で使う軽量版(ネイティブ呼び出しなし)。
+  /// ファイル名は yt-dlp の出力テンプレートで曲名になっている。
+  Future<List<Song>> getSongsWithoutMetadata() async {
+    final Directory playlistDir = Directory(
+      p.join(PlaylistsManager.storagePath, playlistName),
+    );
+    if (!await playlistDir.exists()) return [];
+    try {
+      final List<File> songFiles = await playlistDir
+          .list(recursive: true)
+          .where((entity) => entity is File)
+          .cast<File>()
+          .where((file) => p.extension(file.path).toLowerCase() == '.mp3')
+          .toList();
+      songFiles.sort((a, b) => a.path.compareTo(b.path));
+      return [
+        for (final File songFile in songFiles)
+          Song(
+            p.basenameWithoutExtension(songFile.path),
+            playlistName,
+            '',
+            songFile.path,
+            _findSidecarThumbnail(songFile),
+          ),
+      ];
+    } catch (e, stackTrace) {
+      developer.log(
+        'Failed to list playlist songs',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      return [];
+    }
+  }
+
   Future<List<Song>> getPlaylistSongs(String playlistName) async {
     const String storagePath = PlaylistsManager.storagePath;
     final Directory dir = Directory(storagePath);

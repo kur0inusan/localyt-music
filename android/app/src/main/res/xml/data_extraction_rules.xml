@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12 以降の自動バックアップ・機種変更時の転送設定。
+     内容は backup_rules.xml と同じ(再生履歴は再インストールでリセットする)。 -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="play_history.json" />
+        <exclude domain="file" path="resume_state.json" />
+        <exclude domain="file" path="resume_queue.json" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="play_history.json" />
+        <exclude domain="file" path="resume_state.json" />
+        <exclude domain="file" path="resume_queue.json" />
+    </device-transfer>
+</data-extraction-rules>

@@ -12,7 +12,8 @@ import 'package:localyt_music/services/file_service.dart';
 import 'package:localyt_music/services/play_history_service.dart';
 import 'package:localyt_music/widgets/song_thumbnail.dart';
 
-/// ホーム画面。再生中の曲と保存済みプレイリストへのクイックアクセスを表示する。
+/// ホーム画面。再生中の曲、再生履歴にもとづくおすすめやランキング、
+/// 保存済みプレイリストへのクイックアクセスを表示する。
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -23,6 +24,9 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final PlaylistsManager _playlistsManager = PlaylistsManager();
   List<Playlist> _playlists = [];
+
+  /// おすすめの候補にする全プレイリストの曲。
+  List<Song> _library = [];
   bool _isLoading = true;
 
   @override
@@ -33,9 +37,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadPlaylists() async {
     final List<Playlist> playlists = await _playlistsManager.getAllPlaylist();
+    final List<List<Song>> songsPerPlaylist = await Future.wait(
+      playlists.map(
+        (playlist) => PlaylistManager(playlist.name).getSongsWithoutMetadata(),
+      ),
+    );
     if (!mounted) return;
     setState(() {
       _playlists = playlists;
+      _library = [for (final List<Song> songs in songsPerPlaylist) ...songs];
       _isLoading = false;
     });
   }
@@ -71,7 +81,7 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         children: [
           const _NowPlayingCard(),
-          const _PlayHistorySections(),
+          _PlayHistorySections(library: _library),
           _SectionTitle(
             title: 'プレイリスト',
             trailing: TextButton.icon(
@@ -340,130 +350,215 @@ class _ResumeCardState extends State<_ResumeCard> {
   }
 }
 
-/// 最近再生した曲とよく聴く曲。タップするとそのセクションの曲順で再生する。
-class _PlayHistorySections extends StatelessWidget {
-  const _PlayHistorySections();
+void _playSongs(BuildContext context, List<Song> songs, int index) {
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (context) => SongPlayerScreen(songs: songs, initialIndex: index),
+    ),
+  );
+}
 
-  void _play(BuildContext context, List<Song> songs, int index) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) =>
-            SongPlayerScreen(songs: songs, initialIndex: index),
-      ),
-    );
-  }
+/// おすすめ・最近よく聴く曲・最近再生した曲・再生回数ランキング。
+/// 曲をタップすると、そのセクションの曲順で再生する。
+class _PlayHistorySections extends StatelessWidget {
+  const _PlayHistorySections({required this.library});
+
+  /// おすすめの候補にする全プレイリストの曲。
+  final List<Song> library;
 
   @override
   Widget build(BuildContext context) {
     final PlayHistoryService history = PlayHistoryService.instance;
-    final ColorScheme colorScheme = Theme.of(context).colorScheme;
-    final TextTheme textTheme = Theme.of(context).textTheme;
 
     return ListenableBuilder(
       listenable: history,
       builder: (context, _) {
-        final List<Song> recent = history.recentSongs();
-        final List<({Song song, int count})> frequent = history
-            .frequentSongs();
-        final List<Song> frequentSongs = [
-          for (final entry in frequent) entry.song,
+        final List<Recommendation> recommendations = history.recommend(library);
+        final List<Song> recommendedSongs = [
+          for (final Recommendation recommendation in recommendations)
+            recommendation.song,
         ];
+        final List<({Song song, int count})> recentFrequent = history
+            .recentFrequentSongs();
+        final List<Song> recent = history.recentSongs();
+        final List<({Song song, int count})> ranking = history.frequentSongs();
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (recent.isNotEmpty) ...[
-              const _SectionTitle(title: '最近再生した曲'),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 160,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: recent.length,
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(width: 12),
-                  itemBuilder: (context, index) {
-                    final Song song = recent[index];
-                    return SizedBox(
-                      width: 112,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(8),
-                        onTap: () => _play(context, recent, index),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SongThumbnail(
-                              song: song,
-                              size: 112,
-                              borderRadius: 8,
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              song.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: textTheme.bodySmall?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            if (song.artist.isNotEmpty)
-                              Text(
-                                song.artist,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: textTheme.labelSmall?.copyWith(
-                                  color: colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
+            if (recommendations.isNotEmpty) ...[
+              _SectionTitle(
+                title: 'おすすめ',
+                trailing: TextButton.icon(
+                  onPressed: () => _playSongs(context, recommendedSongs, 0),
+                  icon: const Icon(Icons.play_arrow, size: 18),
+                  label: const Text('すべて再生'),
                 ),
+              ),
+              _SongCarousel(
+                songs: recommendedSongs,
+                captions: [
+                  for (final Recommendation recommendation in recommendations)
+                    recommendation.reason,
+                ],
               ),
               const SizedBox(height: 20),
             ],
-            if (frequent.isNotEmpty) ...[
-              const _SectionTitle(title: 'よく聴く曲'),
+            if (recentFrequent.isNotEmpty) ...[
+              const _SectionTitle(title: '最近よく聴く曲'),
               const SizedBox(height: 4),
-              Card(
-                margin: EdgeInsets.zero,
-                clipBehavior: Clip.antiAlias,
-                child: Column(
-                  children: [
-                    for (int i = 0; i < frequent.length; i++)
-                      ListTile(
-                        leading: SongThumbnail(song: frequent[i].song),
-                        title: Text(
-                          frequent[i].song.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: frequent[i].song.artist.isEmpty
-                            ? null
-                            : Text(
-                                frequent[i].song.artist,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                        trailing: Text(
-                          '${frequent[i].count}回',
-                          style: textTheme.labelMedium?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                        onTap: () => _play(context, frequentSongs, i),
-                      ),
-                  ],
-                ),
-              ),
+              _SongCountList(entries: recentFrequent, countLabel: '回 / 2週間'),
+              const SizedBox(height: 20),
+            ],
+            if (recent.isNotEmpty) ...[
+              const _SectionTitle(title: '最近再生した曲'),
+              const SizedBox(height: 8),
+              _SongCarousel(songs: recent),
+              const SizedBox(height: 20),
+            ],
+            if (ranking.isNotEmpty) ...[
+              const _SectionTitle(title: '再生回数ランキング'),
+              const SizedBox(height: 4),
+              _SongCountList(entries: ranking, countLabel: '回', showRank: true),
               const SizedBox(height: 20),
             ],
           ],
         );
       },
+    );
+  }
+}
+
+/// サムネイル付きの曲を横スクロールで並べる。[captions] があれば
+/// アーティスト名の代わりに表示する(おすすめの理由など)。
+class _SongCarousel extends StatelessWidget {
+  const _SongCarousel({required this.songs, this.captions});
+
+  final List<Song> songs;
+  final List<String>? captions;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colorScheme = Theme.of(context).colorScheme;
+    final TextTheme textTheme = Theme.of(context).textTheme;
+
+    return SizedBox(
+      height: captions == null ? 160 : 176,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: songs.length,
+        separatorBuilder: (context, index) => const SizedBox(width: 12),
+        itemBuilder: (context, index) {
+          final Song song = songs[index];
+          final String caption = captions?[index] ?? song.artist;
+          return SizedBox(
+            width: 112,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => _playSongs(context, songs, index),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SongThumbnail(song: song, size: 112, borderRadius: 8),
+                  const SizedBox(height: 6),
+                  Text(
+                    song.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  if (caption.isNotEmpty)
+                    Text(
+                      caption,
+                      maxLines: captions == null ? 1 : 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// 曲と再生回数のリスト。[showRank] で先頭に順位を付ける。
+class _SongCountList extends StatelessWidget {
+  const _SongCountList({
+    required this.entries,
+    required this.countLabel,
+    this.showRank = false,
+  });
+
+  final List<({Song song, int count})> entries;
+
+  /// 回数の後ろに付ける単位(「回」「回 / 2週間」など)。
+  final String countLabel;
+  final bool showRank;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colorScheme = Theme.of(context).colorScheme;
+    final TextTheme textTheme = Theme.of(context).textTheme;
+    final List<Song> songs = [for (final entry in entries) entry.song];
+
+    return Card(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          for (int i = 0; i < entries.length; i++)
+            ListTile(
+              leading: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (showRank)
+                    SizedBox(
+                      width: 24,
+                      child: Text(
+                        '${i + 1}',
+                        textAlign: TextAlign.center,
+                        style: textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: i < 3
+                              ? colorScheme.primary
+                              : colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  if (showRank) const SizedBox(width: 8),
+                  SongThumbnail(song: entries[i].song),
+                ],
+              ),
+              title: Text(
+                entries[i].song.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: entries[i].song.artist.isEmpty
+                  ? null
+                  : Text(
+                      entries[i].song.artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+              trailing: Text(
+                '${entries[i].count}$countLabel',
+                style: textTheme.labelMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              onTap: () => _playSongs(context, songs, i),
+            ),
+        ],
+      ),
     );
   }
 }
