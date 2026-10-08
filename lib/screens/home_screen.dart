@@ -260,6 +260,14 @@ class _ResumeCardState extends State<_ResumeCard> {
 
   @override
   Widget build(BuildContext context) {
+    // 設定画面で履歴を削除したときにカードを消す
+    return ListenableBuilder(
+      listenable: PlayHistoryService.instance,
+      builder: (context, _) => _buildCard(context),
+    );
+  }
+
+  Widget _buildCard(BuildContext context) {
     final ResumePoint? point = PlayHistoryService.instance.resumePoint;
     if (point == null || !File(point.song.path).existsSync()) {
       return const SizedBox.shrink();

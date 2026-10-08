@@ -147,7 +147,12 @@ class AudioPlayerService {
         .where((song) => File(song.path).existsSync())
         .toList();
     final int index = queue.indexWhere((song) => song.path == point.song.path);
-    if (index < 0) return false;
+    if (index < 0) {
+      // 再生中に履歴を削除した後などキューが残っていなければ、その曲だけで再開する
+      if (!File(point.song.path).existsSync()) return false;
+      await loadPlaylist([point.song], 0, initialPosition: point.position);
+      return true;
+    }
 
     await loadPlaylist(queue, index, initialPosition: point.position);
     return true;

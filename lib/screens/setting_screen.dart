@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
+import 'package:localyt_music/services/play_history_service.dart';
 import 'package:localyt_music/theme/app_theme.dart';
 import 'package:localyt_music/theme/theme_controller.dart';
 
-/// 設定画面。テーマ(デザイン)とライト/ダークモードを切り替える。
+/// 設定画面。テーマ(デザイン)・ライト/ダークモードの切り替えと、
+/// 再生履歴の記録・リセットを行う。
 class SettingScreen extends StatelessWidget {
   const SettingScreen({super.key});
 
@@ -39,6 +41,148 @@ class SettingScreen extends StatelessWidget {
             _ThemeModeSelector(
               mode: controller.themeMode,
               onChanged: controller.setThemeMode,
+            ),
+            const SizedBox(height: 24),
+            _SectionHeader(
+              icon: Icons.history,
+              title: '再生履歴',
+              subtitle: 'ホーム画面のおすすめやランキングに使います',
+            ),
+            const SizedBox(height: 8),
+            const _PlayHistorySettings(),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// 再生履歴の記録のオン/オフ、再生回数のリセット、履歴の削除。
+class _PlayHistorySettings extends StatelessWidget {
+  const _PlayHistorySettings();
+
+  Future<bool> _confirm(
+    BuildContext context, {
+    required String title,
+    required String message,
+    required String action,
+  }) async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('キャンセル'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(context).colorScheme.error,
+            ),
+            child: Text(action),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? false;
+  }
+
+  Future<void> _resetPlayCounts(BuildContext context) async {
+    final bool confirmed = await _confirm(
+      context,
+      title: '再生回数をリセット',
+      message:
+          '全曲の再生回数を0に戻します。再生回数ランキング・最近よく聴く曲・'
+          'おすすめの傾向が初期化されます。\n'
+          '最近再生した曲と続きから再生は残ります。',
+      action: 'リセット',
+    );
+    if (!confirmed || !context.mounted) return;
+    PlayHistoryService.instance.resetPlayCounts();
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('再生回数をリセットしました')));
+  }
+
+  Future<void> _clearAllHistory(BuildContext context) async {
+    final bool confirmed = await _confirm(
+      context,
+      title: '再生履歴をすべて削除',
+      message: '再生回数に加えて、最近再生した曲と続きから再生の情報も削除します。',
+      action: '削除',
+    );
+    if (!confirmed || !context.mounted) return;
+    PlayHistoryService.instance.clearAllHistory();
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('再生履歴を削除しました')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final PlayHistoryService history = PlayHistoryService.instance;
+    final ColorScheme cs = Theme.of(context).colorScheme;
+    final TextTheme tt = Theme.of(context).textTheme;
+
+    return ListenableBuilder(
+      listenable: history,
+      builder: (context, _) {
+        final int songCount = history.countedSongCount;
+        final int playCount = history.totalPlayCount;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Card(
+              margin: EdgeInsets.zero,
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                children: [
+                  SwitchListTile(
+                    secondary: const Icon(Icons.edit_note),
+                    title: const Text('再生履歴を記録する'),
+                    subtitle: const Text('オフの間は再生回数や最近再生した曲を更新しません'),
+                    value: history.isRecording,
+                    onChanged: history.setRecording,
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.restart_alt),
+                    title: const Text('再生回数をリセット'),
+                    subtitle: Text(
+                      playCount == 0
+                          ? '記録された再生回数はありません'
+                          : '$songCount曲・合計$playCount回',
+                    ),
+                    enabled: playCount > 0,
+                    onTap: () => _resetPlayCounts(context),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: Icon(
+                      Icons.delete_outline,
+                      color: history.hasHistory ? cs.error : null,
+                    ),
+                    title: Text(
+                      '再生履歴をすべて削除',
+                      style: history.hasHistory
+                          ? TextStyle(color: cs.error)
+                          : null,
+                    ),
+                    subtitle: const Text('最近再生した曲・続きから再生も削除します'),
+                    enabled: history.hasHistory,
+                    onTap: () => _clearAllHistory(context),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '再生履歴はこの端末のアプリ内にだけ保存され、'
+              'アプリを再インストールすると消えます。',
+              style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
             ),
           ],
         );

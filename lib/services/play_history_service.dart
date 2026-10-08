@@ -73,9 +73,23 @@ class PlayHistoryService extends ChangeNotifier {
   /// 曲ごとの再生日時(古い順)。[_playLogRetention] より古いものは捨てる。
   final Map<String, List<DateTime>> _playLog = {};
   ResumePoint? _resumePoint;
+  bool _isRecording = true;
   Future<void> _writeChain = Future.value();
 
   ResumePoint? get resumePoint => _resumePoint;
+
+  /// false のときは再生履歴・再生回数を記録しない(続きから再生の位置は保存する)。
+  bool get isRecording => _isRecording;
+
+  /// 再生回数を記録している曲の数。
+  int get countedSongCount => _counts.length;
+
+  /// 全曲の再生回数の合計。
+  int get totalPlayCount => _counts.values.fold(0, (sum, count) => sum + count);
+
+  /// 消せる履歴(再生回数・最近再生した曲・続きから再生)が残っているか。
+  bool get hasHistory =>
+      _counts.isNotEmpty || _recent.isNotEmpty || _resumePoint != null;
 
   /// 最近再生した曲を新しい順に返す。削除済みのファイルは除外する。
   List<Song> recentSongs({int limit = 10}) {
@@ -253,6 +267,7 @@ class PlayHistoryService extends ChangeNotifier {
 
       final Object? history = await _readJson(_historyFileName);
       if (history is Map) {
+        _isRecording = history['recording'] != false;
         final Object? songs = history['songs'];
         if (songs is Map) {
           for (final Object? value in songs.values) {
@@ -318,6 +333,7 @@ class PlayHistoryService extends ChangeNotifier {
   }
 
   void recordPlay(Song song, {DateTime? at}) {
+    if (!_isRecording) return;
     final DateTime playedAt = at ?? DateTime.now();
     final Song? known = _songs[song.path];
     // おすすめから再生した曲はメタデータを読んでいないので、
@@ -336,11 +352,47 @@ class PlayHistoryService extends ChangeNotifier {
     _playLog.putIfAbsent(song.path, () => []).add(playedAt);
     _prunePlayLog(playedAt);
     notifyListeners();
+    _saveHistory();
+  }
 
+  Future<void> setRecording(bool value) async {
+    if (_isRecording == value) return;
+    _isRecording = value;
+    notifyListeners();
+    _saveHistory();
+  }
+
+  /// 再生回数と再生日時を消す。ランキング・最近よく聴く曲・おすすめの傾向が
+  /// 初期化される。最近再生した曲と続きから再生は残す。
+  void resetPlayCounts() {
+    _counts.clear();
+    _lastPlayed.clear();
+    _playLog.clear();
+    notifyListeners();
+    _saveHistory();
+  }
+
+  /// 再生回数に加えて、最近再生した曲と続きから再生の状態もすべて消す。
+  void clearAllHistory() {
+    _songs.clear();
+    _recent.clear();
+    _counts.clear();
+    _lastPlayed.clear();
+    _playLog.clear();
+    _resumePoint = null;
+    notifyListeners();
+    _saveHistory();
+    _enqueueDelete(_resumeStateFileName);
+    _enqueueDelete(_resumeQueueFileName);
+  }
+
+  void _saveHistory() {
     _enqueueWrite(_historyFileName, {
-      // 再生回数を持つ曲の表示情報だけを残す
+      'recording': _isRecording,
+      // 再生回数を持つ曲と最近再生した曲の表示情報だけを残す
       'songs': {
-        for (final String path in _counts.keys) path: _songs[path]!.toJson(),
+        for (final String path in {..._counts.keys, ..._recent})
+          path: _songs[path]!.toJson(),
       },
       'recent': _recent,
       'counts': _counts,
@@ -405,6 +457,24 @@ class PlayHistoryService extends ChangeNotifier {
       );
       return null;
     }
+  }
+
+  /// 書き込み待ちの処理が終わってから削除する。
+  void _enqueueDelete(String fileName) {
+    _writeChain = _writeChain.then((_) async {
+      final Directory? dir = _dir;
+      if (dir == null) return;
+      try {
+        final File file = File(p.join(dir.path, fileName));
+        if (await file.exists()) await file.delete();
+      } catch (e, stackTrace) {
+        developer.log(
+          'Failed to delete $fileName',
+          error: e,
+          stackTrace: stackTrace,
+        );
+      }
+    });
   }
 
   /// 書き込みを直列化し、一時ファイル経由で置き換えて途中で壊れないようにする。

@@ -150,5 +150,43 @@ void main() {
       expect(result.map((e) => e.song.title), ['often', 'twice']);
       expect(result.map((e) => e.count), [3, 2]);
     });
+
+    test('再生回数のリセットでは最近再生した曲を残す', () {
+      final PlayHistoryService history = PlayHistoryService.forTesting();
+      final Song song = fileSong('song');
+      history.recordPlay(song, at: now.subtract(const Duration(days: 1)));
+      history.recordPlay(song, at: now);
+
+      history.resetPlayCounts();
+
+      expect(history.totalPlayCount, 0);
+      expect(history.frequentSongs(), isEmpty);
+      expect(history.recentFrequentSongs(now: now), isEmpty);
+      expect(history.recentSongs().map((s) => s.path), [song.path]);
+      expect(history.hasHistory, isTrue);
+    });
+
+    test('すべて削除すると最近再生した曲と続きから再生も消える', () {
+      final PlayHistoryService history = PlayHistoryService.forTesting();
+      final Song song = fileSong('song');
+      history.recordPlay(song, at: now);
+      history.saveResumePoint(song, 0, const Duration(seconds: 30));
+
+      history.clearAllHistory();
+
+      expect(history.recentSongs(), isEmpty);
+      expect(history.resumePoint, isNull);
+      expect(history.hasHistory, isFalse);
+    });
+
+    test('記録をオフにすると再生しても履歴が増えない', () async {
+      final PlayHistoryService history = PlayHistoryService.forTesting();
+      await history.setRecording(false);
+
+      history.recordPlay(fileSong('song'), at: now);
+
+      expect(history.totalPlayCount, 0);
+      expect(history.recentSongs(), isEmpty);
+    });
   });
 }
