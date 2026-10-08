@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
 import 'dart:io';
@@ -6,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as p; // pubspec.yamlに追加必要
 import 'package:localyt_music/models/song.dart';
 import 'package:localyt_music/models/playlist.dart';
+import 'package:localyt_music/services/song_metadata_cache.dart';
 
 class PlaylistsManager {
   static const String storagePath =
@@ -37,7 +39,8 @@ class PlaylistsManager {
     }
   }
 
-  Future<List<Playlist>> getAllPlaylist() async {
+  /// プレイリスト名を、保存した並び順で返す。
+  Future<List<String>> getPlaylistNames() async {
     final Directory dir = Directory(storagePath);
     if (!await dir.exists()) return [];
     try {
@@ -59,17 +62,7 @@ class PlaylistsManager {
       }
       // 新規作成や外部から追加されたフォルダは、保存済み順序の末尾へ加える。
       orderedFolderNames.addAll(folderNames.where(remainingNames.contains));
-
-      List<Playlist> playlists = [];
-      for (String playlistName in orderedFolderNames) {
-        // 曲数の表示だけならメタデータ(ネイティブ呼び出し)は不要なので、
-        // ファイル数を数えるだけの軽量な方法を使う。大量の曲を持つ
-        // プレイリストがあると、一覧表示のたびに曲数分のMethodChannel
-        // 呼び出しが発生してUIがフリーズする原因になっていた。
-        final int count = await PlaylistManager(playlistName).countSongs();
-        playlists.add(Playlist(playlistName, count));
-      }
-      return playlists;
+      return orderedFolderNames;
     } catch (e, stackTrace) {
       developer.log(
         'Failed to load playlists',
@@ -220,6 +213,7 @@ class PlaylistsManager {
     }
 
     await oldDir.rename(newDir.path);
+    PlaylistManager.forgetCachedSongs(oldName);
 
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     final String? url = prefs.getString(oldName);
@@ -284,6 +278,7 @@ class PlaylistsManager {
         throw const FileSystemException('一部のファイルを削除できませんでした');
       }
     }
+    PlaylistManager.forgetCachedSongs(playlistName);
     await deletePlaylistURL(playlistName);
     try {
       await _removePlaylistFromOrder(playlistName);
@@ -303,32 +298,21 @@ class PlaylistManager {
     'com.kuroinusan.localyt_music/youtubedl',
   );
 
+  /// 最後に読んだプレイリストごとの曲。開き直したときにすぐ表示するため。
+  static final Map<String, List<Song>> _songsCache = {};
+
+  /// [playlistName] の曲を前に読んでいれば返す。
+  static List<Song>? cachedSongs(String playlistName) =>
+      _songsCache[playlistName];
+
+  static void forgetCachedSongs(String playlistName) =>
+      _songsCache.remove(playlistName);
+
   String playlistName;
 
   PlaylistManager(this.playlistName) {
     if (playlistName == '') {
       Exception('Playlist name is empty');
-    }
-  }
-
-  /// メタデータを取得せずに曲数だけを数える。プレイリスト一覧表示など
-  /// 曲数さえ分かればよい場面で使う軽量版(ネイティブ呼び出しなし)。
-  Future<int> countSongs() async {
-    final Directory playlistDir = Directory(
-      p.join(PlaylistsManager.storagePath, playlistName),
-    );
-    if (!await playlistDir.exists()) return 0;
-    try {
-      return await playlistDir
-          .list(recursive: true)
-          .where(
-            (entity) =>
-                entity is File &&
-                p.extension(entity.path).toLowerCase() == '.mp3',
-          )
-          .length;
-    } catch (_) {
-      return 0;
     }
   }
 
@@ -341,21 +325,15 @@ class PlaylistManager {
     );
     if (!await playlistDir.exists()) return [];
     try {
-      final List<File> songFiles = await playlistDir
-          .list(recursive: true)
-          .where((entity) => entity is File)
-          .cast<File>()
-          .where((file) => p.extension(file.path).toLowerCase() == '.mp3')
-          .toList();
-      songFiles.sort((a, b) => a.path.compareTo(b.path));
+      final _PlaylistFiles files = await _listFiles(playlistDir);
       return [
-        for (final File songFile in songFiles)
+        for (final File songFile in files.songs)
           Song(
             p.basenameWithoutExtension(songFile.path),
             playlistName,
             '',
             songFile.path,
-            _findSidecarThumbnail(songFile),
+            files.sidecarThumbnailOf(songFile),
           ),
       ];
     } catch (e, stackTrace) {
@@ -377,66 +355,59 @@ class PlaylistManager {
         p.join(storagePath, playlistName),
       );
       if (!await playlistDir.exists()) return [];
-      final List<File> songFiles = await playlistDir
-          .list(recursive: true)
-          .where((entity) => entity is File)
-          .cast<File>()
-          .where((file) => p.extension(file.path).toLowerCase() == '.mp3')
-          .toList();
-      songFiles.sort((a, b) => a.path.compareTo(b.path));
+      final _PlaylistFiles files = await _listFiles(playlistDir);
+      final List<File> songFiles = files.songs;
 
-      // 曲ごとに1回ずつMethodChannelを呼ぶと、曲数が多いプレイリストで
-      // ネイティブ側とのIPCラウンドトリップが直列に積み重なり著しく遅くなる。
-      // 全ファイルパスをまとめて1回のバッチ呼び出しで処理する。
-      final List<String> paths = songFiles.map((f) => f.path).toList();
-      List<Map<String, String>?> metadataList;
-      try {
-        final List<Object?>? result = await _methodChannel
-            .invokeMethod<List<Object?>>('getAudioMetadataBatch', {
-              'paths': paths,
-            });
-        metadataList =
-            result
-                ?.map(
-                  (e) => e == null ? null : Map<String, String>.from(e as Map),
-                )
-                .toList() ??
-            List<Map<String, String>?>.filled(paths.length, null);
-      } catch (_) {
-        metadataList = List<Map<String, String>?>.filled(paths.length, null);
-      }
-
-      // 追加日順の並べ替え用。1曲ずつ待つと曲数分直列になるため並列に取得する。
-      final List<DateTime?> addedAtList = await Future.wait(
-        songFiles.map((file) async {
-          try {
-            return await file.lastModified();
-          } on FileSystemException {
-            return null;
-          }
-        }),
+      // 更新日時は追加日順の並べ替えに、大きさと合わせてキャッシュの
+      // 照合にも使う。1曲ずつ待つと曲数分直列になるため並列に取得する。
+      final List<FileStat> stats = await Future.wait(
+        songFiles.map((file) => file.stat()),
       );
+
+      // メタデータは保存済みの値を使い、新しい曲・変わった曲だけを読む
+      final SongMetadataCache cache = SongMetadataCache.instance;
+      final List<SongMetadata?> metadataList = await Future.wait([
+        for (int i = 0; i < songFiles.length; i++)
+          cache.get(songFiles[i].path, stats[i]),
+      ]);
+      final List<int> missing = [
+        for (int i = 0; i < songFiles.length; i++)
+          if (metadataList[i] == null &&
+              stats[i].type != FileSystemEntityType.notFound)
+            i,
+      ];
+      if (missing.isNotEmpty) {
+        final List<SongMetadata>? fetched = await _fetchMetadata([
+          for (final int i in missing) songFiles[i].path,
+        ]);
+        if (fetched != null) {
+          for (int j = 0; j < missing.length; j++) {
+            final int i = missing[j];
+            metadataList[i] = fetched[j];
+            await cache.put(songFiles[i].path, stats[i], fetched[j]);
+          }
+        }
+      }
 
       List<Song> songs = [];
       for (int i = 0; i < songFiles.length; i++) {
         final File songFile = songFiles[i];
-        final Map<String, String>? metadata = metadataList[i];
+        final SongMetadata? metadata = metadataList[i];
         final String songName = p.basenameWithoutExtension(songFile.path);
         songs.add(
           Song(
-            metadata?['title']?.isNotEmpty == true
-                ? metadata!['title']!
-                : songName,
-            metadata?['album']?.isNotEmpty == true
-                ? metadata!['album']!
-                : playlistName,
-            metadata?['artist'] ?? '',
+            metadata?.title.isNotEmpty == true ? metadata!.title : songName,
+            metadata?.album.isNotEmpty == true ? metadata!.album : playlistName,
+            metadata?.artist ?? '',
             songFile.path,
-            _findSidecarThumbnail(songFile),
-            addedAtList[i],
+            files.sidecarThumbnailOf(songFile),
+            stats[i].type == FileSystemEntityType.notFound
+                ? null
+                : stats[i].modified,
           ),
         );
       }
+      _songsCache[playlistName] = songs;
       return songs;
     } catch (e, stackTrace) {
       developer.log(
@@ -448,14 +419,104 @@ class PlaylistManager {
     }
   }
 
-  String _findSidecarThumbnail(File songFile) {
-    final String basePath = p.withoutExtension(songFile.path);
-    for (final String extension in ['jpg', 'jpeg', 'png', 'webp']) {
-      final File thumbnail = File('$basePath.$extension');
-      if (thumbnail.existsSync()) {
-        return thumbnail.path;
+  /// 曲ごとに1回ずつMethodChannelを呼ぶと、曲数が多いプレイリストで
+  /// ネイティブ側とのIPCラウンドトリップが直列に積み重なり著しく遅くなる。
+  /// 全ファイルパスをまとめて1回のバッチ呼び出しで処理する。読めなければ null。
+  Future<List<SongMetadata>?> _fetchMetadata(List<String> paths) async {
+    try {
+      final List<Object?>? result = await _methodChannel
+          .invokeMethod<List<Object?>>('getAudioMetadataBatch', {
+            'paths': paths,
+          });
+      if (result == null || result.length != paths.length) return null;
+      return [
+        for (final Object? item in result)
+          (
+            title: (item is Map ? item['title'] as String? : null) ?? '',
+            album: (item is Map ? item['album'] as String? : null) ?? '',
+            artist: (item is Map ? item['artist'] as String? : null) ?? '',
+          ),
+      ];
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// フォルダの中を一度だけ一覧し、曲と、曲と同じ名前の画像を探す。
+  /// 曲ごとに画像の有無を調べると、曲数×拡張子の数だけファイルを開くことになる。
+  static Future<_PlaylistFiles> _listFiles(Directory playlistDir) async {
+    final List<File> songs = [];
+    final Set<String> others = {};
+    await for (final FileSystemEntity entity in playlistDir.list(
+      recursive: true,
+    )) {
+      if (entity is! File) continue;
+      if (p.extension(entity.path).toLowerCase() == '.mp3') {
+        songs.add(entity);
+      } else {
+        others.add(entity.path);
       }
     }
+    songs.sort((a, b) => a.path.compareTo(b.path));
+    return _PlaylistFiles(songs, others);
+  }
+}
+
+class _PlaylistFiles {
+  const _PlaylistFiles(this.songs, this._otherPaths);
+
+  final List<File> songs;
+  final Set<String> _otherPaths;
+
+  String sidecarThumbnailOf(File songFile) {
+    final String basePath = p.withoutExtension(songFile.path);
+    for (final String extension in ['jpg', 'jpeg', 'png', 'webp']) {
+      final String path = '$basePath.$extension';
+      if (_otherPaths.contains(path)) return path;
+    }
     return '';
+  }
+}
+
+/// ホームとライブラリに出す、プレイリストの一覧と各プレイリストの曲。
+/// 曲はメタデータを読まない軽量版(ネイティブ呼び出しなし)。
+class LibrarySnapshot {
+  const LibrarySnapshot(this.playlists, this.songsPerPlaylist);
+
+  final List<Playlist> playlists;
+  final List<List<Song>> songsPerPlaylist;
+
+  /// 最後に読んだもの。画面を作り直したときにすぐ表示するため。
+  static LibrarySnapshot? latest;
+
+  static Future<LibrarySnapshot>? _loading;
+  static bool _warmedUp = false;
+
+  /// 読み込む。ホームとライブラリが同時に呼んでも1回だけ読む。
+  static Future<LibrarySnapshot> load() =>
+      _loading ??= _load().whenComplete(() => _loading = null);
+
+  static Future<LibrarySnapshot> _load() async {
+    final List<String> names = await PlaylistsManager().getPlaylistNames();
+    final List<List<Song>> songsPerPlaylist = await Future.wait(
+      names.map((name) => PlaylistManager(name).getSongsWithoutMetadata()),
+    );
+    if (!_warmedUp) {
+      _warmedUp = true;
+      unawaited(_warmUp(names));
+    }
+    return latest = LibrarySnapshot([
+      for (int i = 0; i < names.length; i++)
+        Playlist(names[i], songsPerPlaylist[i].length),
+    ], songsPerPlaylist);
+  }
+
+  /// 起動後に一度、各プレイリストの曲(メタデータ込み)を順に読んでおく。
+  /// プレイリストを開いたときに読み込みを待たずに済む。
+  static Future<void> _warmUp(List<String> names) async {
+    for (final String name in names) {
+      if (PlaylistManager.cachedSongs(name) != null) continue;
+      await PlaylistManager(name).getPlaylistSongs(name);
+    }
   }
 }

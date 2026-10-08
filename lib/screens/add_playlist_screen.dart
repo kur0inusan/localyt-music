@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:localyt_music/services/file_service.dart';
+import 'package:localyt_music/services/library_events.dart';
 import 'package:localyt_music/services/yt_dl_service.dart';
 import 'package:localyt_music/widgets/network_warning.dart';
 
@@ -137,6 +139,8 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
       // ダウンロードの実体はネイティブのサービスに委譲される。
       // このFutureは実際の完了イベントを受け取るまで待機する。
       await YTDLService.startDownload(url, playlistName);
+      // この画面を閉じた後に完了しても、ホームとライブラリには反映する
+      LibraryEvents.instance.notifyChanged();
       if (mounted) {
         _showSnackBar('ダウンロードが完了しました');
         Navigator.pop(context, true);
@@ -172,9 +176,12 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const SizedBox(height: 10),
-                const Text(
-                  'プレイリストをローカルにダウンロードします',
-                  style: TextStyle(color: Colors.grey, fontSize: 13),
+                Text(
+                  'YouTubeのプレイリストを端末にダウンロードします',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 13,
+                  ),
                 ),
                 const SizedBox(height: 30),
 
@@ -184,8 +191,7 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
                   decoration: const InputDecoration(
                     labelText: 'プレイリスト名 (表示名)',
                     hintText: '勉強用',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.folder),
+                    prefixIcon: Icon(Symbols.folder_rounded),
                   ),
                   validator: _validatePlaylistName,
                 ),
@@ -197,18 +203,14 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
                   decoration: const InputDecoration(
                     labelText: 'プレイリストURL',
                     hintText: 'https://www.youtube.com/playlist?list=...',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.link),
+                    prefixIcon: Icon(Symbols.link_rounded),
                   ),
                   validator: _validateUrl,
                 ),
                 const SizedBox(height: 30),
 
                 if (_isDownloading || _progress > 0.0) ...[
-                  LinearProgressIndicator(
-                    value: _progress / 100.0,
-                    minHeight: 8,
-                  ),
+                  LinearProgressIndicator(value: _progress / 100.0),
                   const SizedBox(height: 12),
                   Text(
                     _statusText,
@@ -218,23 +220,16 @@ class _AddPlaylistScreenState extends State<AddPlaylistScreen> {
                   const SizedBox(height: 20),
                 ],
 
-                ElevatedButton.icon(
+                FilledButton.icon(
                   onPressed: _isDownloading ? null : _startDownloadAndSave,
                   icon: _isDownloading
                       ? const SizedBox(
                           width: 20,
                           height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
+                          child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.download),
+                      : const Icon(Symbols.download_rounded),
                   label: Text(_isDownloading ? 'ダウンロード中...' : 'ダウンロードして追加する'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    textStyle: const TextStyle(fontSize: 16),
-                  ),
                 ),
               ],
             ),

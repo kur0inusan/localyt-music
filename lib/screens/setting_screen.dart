@@ -1,58 +1,157 @@
 import 'package:flutter/material.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:localyt_music/services/play_history_service.dart';
+import 'package:localyt_music/theme/app_palette.dart';
 import 'package:localyt_music/theme/app_theme.dart';
 import 'package:localyt_music/theme/theme_controller.dart';
+import 'package:localyt_music/utils/display_title.dart';
 
-/// 設定画面。テーマ(デザイン)・ライト/ダークモードの切り替えと、
-/// 再生履歴の記録・リセットを行う。
+/// 設定画面。テーマ・ライト/ダークモード・曲名の表示の切り替えと、
+/// 再生履歴の記録・リセットを行う。ホームの歯車から開く。
 class SettingScreen extends StatelessWidget {
   const SettingScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     final ThemeController controller = ThemeController.instance;
+    final AppPalette palette = AppPalette.of(context);
+    final Brightness brightness = Theme.of(context).brightness;
 
-    return ListenableBuilder(
-      listenable: controller,
-      builder: (context, _) {
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-          children: [
-            _SectionHeader(
-              icon: Icons.palette_outlined,
-              title: 'テーマ',
-              subtitle: 'アプリ全体のデザインを切り替えます',
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          tooltip: '戻る',
+          icon: const Icon(Symbols.arrow_back_rounded),
+          onPressed: () => Navigator.maybePop(context),
+        ),
+        title: const Text('設定'),
+      ),
+      body: ListenableBuilder(
+        listenable: controller,
+        builder: (context, _) {
+          return ListView(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              8,
+              20,
+              32 + MediaQuery.paddingOf(context).bottom,
             ),
-            const SizedBox(height: 8),
-            for (final theme in AppThemes.all)
-              _ThemeOptionCard(
-                theme: theme,
-                selected: controller.themeId == theme.id,
-                onTap: () => controller.setThemeId(theme.id),
+            children: [
+              const _Heading(title: 'テーマ', subtitle: '色と角の丸み、浮いている部品の質感が変わります'),
+              const SizedBox(height: 12),
+              for (final AppThemeData theme in AppThemes.all) ...[
+                _ThemeOptionCard(
+                  theme: theme,
+                  palette: theme.paletteFor(brightness),
+                  selected: controller.themeId == theme.id,
+                  onTap: () => controller.setThemeId(theme.id),
+                ),
+                const SizedBox(height: 12),
+              ],
+              const SizedBox(height: 20),
+              const _Heading(title: '表示モード'),
+              const SizedBox(height: 12),
+              _ThemeModeSelector(
+                mode: controller.themeMode,
+                onChanged: controller.setThemeMode,
               ),
-            const SizedBox(height: 24),
-            _SectionHeader(
-              icon: Icons.brightness_6_outlined,
-              title: '表示モード',
-              subtitle: 'ライト・ダークの切り替え',
-            ),
-            const SizedBox(height: 12),
-            _ThemeModeSelector(
-              mode: controller.themeMode,
-              onChanged: controller.setThemeMode,
-            ),
-            const SizedBox(height: 24),
-            _SectionHeader(
-              icon: Icons.history,
-              title: '再生履歴',
-              subtitle: 'ホーム画面のおすすめやランキングに使います',
-            ),
-            const SizedBox(height: 8),
-            const _PlayHistorySettings(),
-          ],
-        );
-      },
+              const SizedBox(height: 36),
+              const _Heading(title: '表示'),
+              const SizedBox(height: 12),
+              _SettingsGroup(
+                children: [
+                  SwitchListTile(
+                    secondary: const Icon(Symbols.title_rounded),
+                    title: const Text('曲名を整えて表示する'),
+                    subtitle: Text(
+                      '【MV】や (Official Video) などを外します\n'
+                      '例: ${cleanSongTitle('【MV】群青の街（Official Music Video）')}',
+                    ),
+                    isThreeLine: true,
+                    value: controller.cleanTitles,
+                    onChanged: controller.setCleanTitles,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 36),
+              const _Heading(title: '再生履歴', subtitle: 'ホーム画面のおすすめやよく聴く曲に使います'),
+              const SizedBox(height: 12),
+              const _PlayHistorySettings(),
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Text(
+                  '再生履歴はこの端末のアプリ内にだけ保存され、'
+                  'アプリを再インストールすると消えます。',
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.6,
+                    color: palette.textMuted,
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _Heading extends StatelessWidget {
+  const _Heading({required this.title, this.subtitle});
+
+  final String title;
+  final String? subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppPalette palette = AppPalette.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: AppFonts.displayStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w700,
+            color: palette.text,
+          ),
+        ),
+        if (subtitle != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            subtitle!,
+            style: TextStyle(fontSize: 12, color: palette.textMuted),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// 設定項目をまとめる面。
+class _SettingsGroup extends StatelessWidget {
+  const _SettingsGroup({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppPalette palette = AppPalette.of(context);
+    final BorderRadius radius = BorderRadius.circular(palette.radiusCard);
+    return Container(
+      decoration: BoxDecoration(
+        color: palette.surface,
+        borderRadius: radius,
+        boxShadow: palette.raisedShadows,
+      ),
+      child: Material(
+        type: MaterialType.transparency,
+        borderRadius: radius,
+        clipBehavior: Clip.antiAlias,
+        child: Column(children: children),
+      ),
     );
   }
 }
@@ -95,7 +194,7 @@ class _PlayHistorySettings extends StatelessWidget {
       context,
       title: '再生回数をリセット',
       message:
-          '全曲の再生回数を0に戻します。再生回数ランキング・最近よく聴く曲・'
+          '全曲の再生回数を0に戻します。よく聴く曲と'
           'おすすめの傾向が初期化されます。\n'
           '最近再生した曲と続きから再生は残ります。',
       action: 'リセット',
@@ -124,65 +223,47 @@ class _PlayHistorySettings extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final PlayHistoryService history = PlayHistoryService.instance;
-    final ColorScheme cs = Theme.of(context).colorScheme;
-    final TextTheme tt = Theme.of(context).textTheme;
+    final Color error = Theme.of(context).colorScheme.error;
 
     return ListenableBuilder(
       listenable: history,
       builder: (context, _) {
         final int songCount = history.countedSongCount;
         final int playCount = history.totalPlayCount;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        return _SettingsGroup(
           children: [
-            Card(
-              margin: EdgeInsets.zero,
-              clipBehavior: Clip.antiAlias,
-              child: Column(
-                children: [
-                  SwitchListTile(
-                    secondary: const Icon(Icons.edit_note),
-                    title: const Text('再生履歴を記録する'),
-                    subtitle: const Text('オフの間は再生回数や最近再生した曲を更新しません'),
-                    value: history.isRecording,
-                    onChanged: history.setRecording,
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: const Icon(Icons.restart_alt),
-                    title: const Text('再生回数をリセット'),
-                    subtitle: Text(
-                      playCount == 0
-                          ? '記録された再生回数はありません'
-                          : '$songCount曲・合計$playCount回',
-                    ),
-                    enabled: playCount > 0,
-                    onTap: () => _resetPlayCounts(context),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: Icon(
-                      Icons.delete_outline,
-                      color: history.hasHistory ? cs.error : null,
-                    ),
-                    title: Text(
-                      '再生履歴をすべて削除',
-                      style: history.hasHistory
-                          ? TextStyle(color: cs.error)
-                          : null,
-                    ),
-                    subtitle: const Text('最近再生した曲・続きから再生も削除します'),
-                    enabled: history.hasHistory,
-                    onTap: () => _clearAllHistory(context),
-                  ),
-                ],
-              ),
+            SwitchListTile(
+              secondary: const Icon(Symbols.edit_note_rounded),
+              title: const Text('再生履歴を記録する'),
+              subtitle: const Text('オフの間は再生回数や最近再生した曲を更新しません'),
+              value: history.isRecording,
+              onChanged: history.setRecording,
             ),
-            const SizedBox(height: 8),
-            Text(
-              '再生履歴はこの端末のアプリ内にだけ保存され、'
-              'アプリを再インストールすると消えます。',
-              style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+            const Divider(indent: 16, endIndent: 16),
+            ListTile(
+              leading: const Icon(Symbols.restart_alt_rounded),
+              title: const Text('再生回数をリセット'),
+              subtitle: Text(
+                playCount == 0
+                    ? '記録された再生回数はありません'
+                    : '$songCount曲・合計$playCount回',
+              ),
+              enabled: playCount > 0,
+              onTap: () => _resetPlayCounts(context),
+            ),
+            const Divider(indent: 16, endIndent: 16),
+            ListTile(
+              leading: Icon(
+                Symbols.delete_rounded,
+                color: history.hasHistory ? error : null,
+              ),
+              title: Text(
+                '再生履歴をすべて削除',
+                style: history.hasHistory ? TextStyle(color: error) : null,
+              ),
+              subtitle: const Text('最近再生した曲・続きから再生も削除します'),
+              enabled: history.hasHistory,
+              onTap: () => _clearAllHistory(context),
             ),
           ],
         );
@@ -191,120 +272,81 @@ class _PlayHistorySettings extends StatelessWidget {
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    final ColorScheme cs = Theme.of(context).colorScheme;
-    final TextTheme tt = Theme.of(context).textTheme;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, color: cs.primary),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: tt.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              Text(
-                subtitle,
-                style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// テーマ1件分の選択カード。左側にプレビュー、右側に名前と説明。
+/// テーマ1件分の選択カード。左にそのテーマの配色の小さな見本、右に名前と説明。
 class _ThemeOptionCard extends StatelessWidget {
   const _ThemeOptionCard({
     required this.theme,
+    required this.palette,
     required this.selected,
     required this.onTap,
   });
 
   final AppThemeData theme;
+
+  /// このテーマの、いまの表示モードでの配色(見本に使う)。
+  final AppPalette palette;
   final bool selected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final ColorScheme cs = Theme.of(context).colorScheme;
-    final TextTheme tt = Theme.of(context).textTheme;
+    final AppPalette current = AppPalette.of(context);
+    final BorderRadius radius = BorderRadius.circular(current.radiusCard);
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      color: selected ? cs.primaryContainer : cs.surfaceContainerHigh,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: selected ? cs.primary : Colors.transparent,
-          width: 2,
+    return Container(
+      decoration: BoxDecoration(
+        color: current.surface,
+        borderRadius: radius,
+        border: Border.all(
+          color: selected ? current.accent : Colors.transparent,
+          width: 1.5,
         ),
+        boxShadow: current.raisedShadows,
       ),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              _ThemePreview(theme: theme),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(theme.icon, size: 18, color: cs.primary),
-                        const SizedBox(width: 6),
-                        Text(
-                          theme.label,
-                          style: tt.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: selected
-                                ? cs.onPrimaryContainer
-                                : cs.onSurface,
-                          ),
+      child: Material(
+        type: MaterialType.transparency,
+        borderRadius: radius,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                _ThemePreview(palette: palette),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        theme.label,
+                        style: AppFonts.displayStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: current.text,
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      theme.description,
-                      style: tt.bodySmall?.copyWith(
-                        color: selected
-                            ? cs.onPrimaryContainer.withValues(alpha: 0.8)
-                            : cs.onSurfaceVariant,
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 4),
+                      Text(
+                        theme.description,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: current.textMuted,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              Icon(
-                selected
-                    ? Icons.radio_button_checked
-                    : Icons.radio_button_unchecked,
-                color: selected ? cs.primary : cs.onSurfaceVariant,
-              ),
-            ],
+                Icon(
+                  selected
+                      ? Symbols.radio_button_checked_rounded
+                      : Symbols.radio_button_unchecked_rounded,
+                  color: selected ? current.accent : current.textFaint,
+                  fill: selected ? 1 : 0,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -312,59 +354,58 @@ class _ThemeOptionCard extends StatelessWidget {
   }
 }
 
-/// テーマの代表色を使った小さなミニ画面プレビュー。
+/// テーマの配色を使った小さな見本(地・面・再生ボタン・下タブ)。
 class _ThemePreview extends StatelessWidget {
-  const _ThemePreview({required this.theme});
+  const _ThemePreview({required this.palette});
 
-  final AppThemeData theme;
+  final AppPalette palette;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 56,
-      height: 56,
+      width: 64,
+      height: 64,
       decoration: BoxDecoration(
-        color: theme.previewBackground,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.black.withValues(alpha: 0.08)),
+        color: palette.bg,
+        borderRadius: BorderRadius.circular(palette.radiusArtLarge),
+        border: Border.all(color: palette.border),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 28,
-              height: 8,
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            height: 18,
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            decoration: BoxDecoration(
+              color: palette.surface,
+              borderRadius: BorderRadius.circular(palette.radiusChip / 2),
+              boxShadow: palette.raisedShadows
+                  .map((s) => s.scale(0.3))
+                  .toList(),
+            ),
+            alignment: Alignment.centerRight,
+            child: Container(
+              width: 10,
+              height: 10,
               decoration: BoxDecoration(
-                color: theme.previewSurface,
-                borderRadius: BorderRadius.circular(4),
+                shape: BoxShape.circle,
+                gradient: palette.playGradient,
               ),
             ),
-            Row(
-              children: [
-                Container(
-                  width: 16,
-                  height: 16,
-                  decoration: BoxDecoration(
-                    color: theme.previewPrimary,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Container(
-                  width: 12,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: theme.previewSurface,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-              ],
+          ),
+          const Spacer(),
+          Center(
+            child: Container(
+              width: 30,
+              height: 10,
+              decoration: ShapeDecoration(
+                shape: const StadiumBorder(),
+                color: palette.accent,
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -379,21 +420,22 @@ class _ThemeModeSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SegmentedButton<ThemeMode>(
+      showSelectedIcon: false,
       segments: const [
         ButtonSegment(
           value: ThemeMode.system,
-          label: Text('システム'),
-          icon: Icon(Icons.settings_suggest_outlined),
+          label: Text('自動'),
+          icon: Icon(Symbols.brightness_auto_rounded, size: 18),
         ),
         ButtonSegment(
           value: ThemeMode.light,
           label: Text('ライト'),
-          icon: Icon(Icons.light_mode_outlined),
+          icon: Icon(Symbols.light_mode_rounded, size: 18),
         ),
         ButtonSegment(
           value: ThemeMode.dark,
           label: Text('ダーク'),
-          icon: Icon(Icons.dark_mode_outlined),
+          icon: Icon(Symbols.dark_mode_rounded, size: 18),
         ),
       ],
       selected: {mode},

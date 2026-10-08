@@ -1,12 +1,11 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
-import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:localyt_music/models/song.dart';
+import 'package:localyt_music/services/artwork_cache.dart';
 import 'package:localyt_music/services/play_history_service.dart';
 
 /// アプリ全体で共有する単一の [AudioPlayer] を保持するサービス。
@@ -36,14 +35,7 @@ class AudioPlayerService {
 
   static final AudioPlayerService instance = AudioPlayerService._internal();
 
-  static const MethodChannel _methodChannel = MethodChannel(
-    'com.kuroinusan.localyt_music/youtubedl',
-  );
-
   final AudioPlayer player = AudioPlayer();
-
-  final Map<String, Uint8List?> _thumbnailCache = {};
-  final Map<String, Future<Uint8List?>> _thumbnailLoaders = {};
 
   List<Song> _songs = const [];
 
@@ -107,7 +99,9 @@ class AudioPlayerService {
     _isReplacingQueue = true;
     try {
       _songs = List.unmodifiable(songs);
-      final List<Uri?> artUris = await _resolveArtUris(_songs);
+      // 通知に出す画像は最初の曲の分だけ待ち、残りは再生を始めてから用意する
+      final ArtworkCache artwork = ArtworkCache.instance;
+      await artwork.load(_songs[clampedIndex]);
       final List<AudioSource> children = [
         for (int i = 0; i < _songs.length; i++)
           AudioSource.uri(
@@ -117,7 +111,7 @@ class AudioPlayerService {
               title: _songs[i].title,
               artist: _songs[i].artist.isEmpty ? null : _songs[i].artist,
               album: _songs[i].album.isEmpty ? null : _songs[i].album,
-              artUri: artUris[i],
+              artUri: artwork.uriFor(_songs[i]),
             ),
           ),
       ];
@@ -130,6 +124,7 @@ class AudioPlayerService {
     } finally {
       _isReplacingQueue = false;
     }
+    unawaited(ArtworkCache.instance.prefetch(_songs, startAt: clampedIndex));
     PlayHistoryService.instance.saveResumeQueue(_songs);
     _saveResumePoint();
     if (autoPlay) {
@@ -204,6 +199,26 @@ class AudioPlayerService {
 
   Future<void> seek(Duration position) => player.seek(position);
 
+  /// [startIndex] の曲(省略時はランダム)から始めて、シャッフル再生する。
+  Future<void> playShuffled(List<Song> songs, {int? startIndex}) async {
+    if (songs.isEmpty) return;
+    await loadPlaylist(
+      songs,
+      startIndex ?? Random().nextInt(songs.length),
+      autoPlay: false,
+    );
+    await player.shuffle();
+    await player.setShuffleModeEnabled(true);
+    unawaited(player.play());
+  }
+
+  /// 先頭から曲順どおりに再生するときなどに、シャッフルを切る。
+  Future<void> setShuffleModeEnabled(bool enabled) async {
+    if (player.shuffleModeEnabled == enabled) return;
+    if (enabled) await player.shuffle();
+    await player.setShuffleModeEnabled(enabled);
+  }
+
   /// シャッフル再生のオン/オフを切り替える。オンにする際は再生順をシャッフルし直す。
   Future<void> toggleShuffleMode() async {
     final bool enable = !player.shuffleModeEnabled;
@@ -226,84 +241,6 @@ class AudioPlayerService {
         await player.setLoopMode(LoopMode.off);
         break;
     }
-  }
-
-  /// 曲のサムネイル画像を取得する。サイドカー画像があればそれを、
-  /// なければ音声ファイルに埋め込まれた画像を読み込む。結果はキャッシュされる。
-  Future<Uint8List?> loadThumbnail(Song song) {
-    if (_thumbnailCache.containsKey(song.path)) {
-      return Future.value(_thumbnailCache[song.path]);
-    }
-    return _thumbnailLoaders[song.path] ??= _fetchThumbnail(song).then((
-      bytes,
-    ) {
-      _thumbnailCache[song.path] = bytes;
-      _thumbnailLoaders.remove(song.path);
-      return bytes;
-    });
-  }
-
-  Future<Uint8List?> _fetchThumbnail(Song song) async {
-    if (song.thumbnailPath.isNotEmpty) {
-      final File file = File(song.thumbnailPath);
-      if (await file.exists()) {
-        return file.readAsBytes();
-      }
-    }
-    try {
-      return await _methodChannel.invokeMethod<Uint8List>(
-        'getAudioThumbnail',
-        {'path': song.path},
-      );
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// 曲のアートワークURIをまとめて解決する。全曲を一度に並列実行すると
-  /// 曲数の多いプレイリストでネイティブ呼び出しが大量に同時発火してしまう
-  /// ため、一定数ずつバッチに分けて処理する。
-  Future<List<Uri?>> _resolveArtUris(List<Song> songs) async {
-    const int batchSize = 6;
-    final List<Uri?> results = List<Uri?>.filled(songs.length, null);
-    for (int start = 0; start < songs.length; start += batchSize) {
-      final int end = (start + batchSize > songs.length)
-          ? songs.length
-          : start + batchSize;
-      final List<Uri?> batch = await Future.wait(
-        songs.sublist(start, end).map(_resolveArtUri),
-      );
-      results.setRange(start, end, batch);
-    }
-    return results;
-  }
-
-  /// 通知・ロック画面に表示するアートワークの [Uri] を解決する。
-  /// サイドカー画像があればそのファイルを、なければ埋め込み画像を
-  /// キャッシュディレクトリに書き出して利用する。
-  Future<Uri?> _resolveArtUri(Song song) async {
-    if (song.thumbnailPath.isNotEmpty) {
-      final File file = File(song.thumbnailPath);
-      if (await file.exists()) {
-        return Uri.file(file.path);
-      }
-    }
-
-    final Uint8List? bytes = await loadThumbnail(song);
-    if (bytes == null) return null;
-
-    final Directory tempDir = await getTemporaryDirectory();
-    final Directory artDir = Directory(p.join(tempDir.path, 'artwork'));
-    if (!await artDir.exists()) {
-      await artDir.create(recursive: true);
-    }
-    final File artFile = File(
-      p.join(artDir.path, '${song.path.hashCode}.jpg'),
-    );
-    if (!await artFile.exists()) {
-      await artFile.writeAsBytes(bytes, flush: true);
-    }
-    return Uri.file(artFile.path);
   }
 
   bool _isSamePlaylist(List<Song> songs) {

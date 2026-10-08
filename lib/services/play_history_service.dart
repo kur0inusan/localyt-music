@@ -255,10 +255,15 @@ class PlayHistoryService extends ChangeNotifier {
   /// 曲ファイルが入っているプレイリスト名。ダウンロード先の外なら null。
   @visibleForTesting
   static String? playlistOf(String path) {
-    const String root = PlaylistsManager.storagePath;
-    if (!p.isWithin(root, path)) return null;
-    return p.split(p.relative(path, from: root)).first;
+    // おすすめを選ぶたびに全曲ぶん呼ばれ、パスの計算は軽くないので覚えておく
+    return _playlistOfCache.putIfAbsent(path, () {
+      const String root = PlaylistsManager.storagePath;
+      if (!p.isWithin(root, path)) return null;
+      return p.split(p.relative(path, from: root)).first;
+    });
   }
+
+  static final Map<String, String?> _playlistOfCache = {};
 
   /// 起動時に保存済みの履歴と再生位置を読み込む。
   Future<void> load() async {

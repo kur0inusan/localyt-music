@@ -1,33 +1,38 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:material_symbols_icons/symbols.dart';
+
+import 'app_palette.dart';
 
 /// アプリで選択できるテーマの種類。
 enum AppThemeId { classic, neumorphism, modern }
 
-/// 1つのテーマが持つ情報(表示名・説明・ライト/ダークの [ThemeData]・プレビュー色)。
+/// 1つのテーマが持つ情報(表示名・説明・ライト/ダークのパレット)。
+///
+/// 画面の部品はどのテーマでも共通で、変わるのは [AppPalette] の色・角丸・
+/// 浮いている部品の質感だけ。
 class AppThemeData {
-  const AppThemeData({
+  AppThemeData({
     required this.id,
     required this.label,
     required this.description,
     required this.icon,
-    required this.light,
-    required this.dark,
-    required this.previewBackground,
-    required this.previewPrimary,
-    required this.previewSurface,
-  });
+    required this.lightPalette,
+    required this.darkPalette,
+  }) : light = buildAppTheme(lightPalette),
+       dark = buildAppTheme(darkPalette);
 
   final AppThemeId id;
   final String label;
   final String description;
   final IconData icon;
+  final AppPalette lightPalette;
+  final AppPalette darkPalette;
   final ThemeData light;
   final ThemeData dark;
 
-  /// 設定画面でプレビュー表示に使う代表色。
-  final Color previewBackground;
-  final Color previewPrimary;
-  final Color previewSurface;
+  AppPalette paletteFor(Brightness brightness) =>
+      brightness == Brightness.dark ? darkPalette : lightPalette;
 }
 
 /// 全テーマの定義と取得用のヘルパ。
@@ -35,259 +40,333 @@ class AppThemes {
   AppThemes._();
 
   static final List<AppThemeData> all = [
-    _classic(),
-    _neumorphism(),
-    _modern(),
+    AppThemeData(
+      id: AppThemeId.classic,
+      label: 'クラシック',
+      description: 'ティールのアクセントと控えめな角丸',
+      icon: Symbols.water_drop_rounded,
+      lightPalette: AppPalette.classicLight,
+      darkPalette: AppPalette.classicDark,
+    ),
+    AppThemeData(
+      id: AppThemeId.neumorphism,
+      label: 'ニューモフィズム',
+      description: 'やわらかい陰影で浮かせるモノトーン',
+      icon: Symbols.blur_on_rounded,
+      lightPalette: AppPalette.neumorphismLight,
+      darkPalette: AppPalette.neumorphismDark,
+    ),
+    AppThemeData(
+      id: AppThemeId.modern,
+      label: 'モダン',
+      description: '紫のアクセントとすりガラス',
+      icon: Symbols.auto_awesome_rounded,
+      lightPalette: AppPalette.modernLight,
+      darkPalette: AppPalette.modernDark,
+    ),
   ];
 
   static AppThemeData byId(AppThemeId id) =>
       all.firstWhere((t) => t.id == id, orElse: () => all.first);
+}
 
-  // ---------------------------------------------------------------------------
-  // 共通ビルダー
-  // ---------------------------------------------------------------------------
+/// パレットからアプリ全体の [ThemeData] を組み立てる。
+///
+/// 独自に組んだ部品はパレットを直接参照し、ダイアログ・入力欄・スイッチ等の
+/// Material 部品はここで同じ色・書体・角丸にそろえる。
+ThemeData buildAppTheme(AppPalette p) {
+  final ColorScheme scheme =
+      ColorScheme.fromSeed(
+        seedColor: p.accent,
+        brightness: p.brightness,
+      ).copyWith(
+        primary: p.accent,
+        onPrimary: p.onAccent,
+        secondary: p.accent,
+        onSecondary: p.onAccent,
+        surface: p.bg,
+        onSurface: p.text,
+        onSurfaceVariant: p.textMuted,
+        surfaceContainerLowest: p.bg,
+        surfaceContainerLow: p.surface,
+        surfaceContainer: p.surface,
+        surfaceContainerHigh: p.surfaceHigh,
+        surfaceContainerHighest: p.surfaceHigh,
+        outline: p.border,
+        outlineVariant: p.border,
+        shadow: p.glassShadow,
+      );
 
-  /// [ColorScheme] と形状・ボタン形状などからアプリ全体の [ThemeData] を組み立てる。
-  static ThemeData _build({
-    required ColorScheme scheme,
-    required double radius,
-    required bool pillButtons,
-    Color? scaffoldBackground,
-    double cardElevation = 1,
-    double appBarElevation = 0,
-    Color? cardShadowColor,
-    FontWeight titleWeight = FontWeight.w600,
-  }) {
-    final OutlinedBorder buttonShape = pillButtons
-        ? const StadiumBorder()
-        : RoundedRectangleBorder(borderRadius: BorderRadius.circular(radius));
-    final RoundedRectangleBorder cardShape =
-        RoundedRectangleBorder(borderRadius: BorderRadius.circular(radius));
+  final ThemeData base = ThemeData(
+    useMaterial3: true,
+    brightness: p.brightness,
+    colorScheme: scheme,
+    fontFamily: AppFonts.body,
+    scaffoldBackgroundColor: p.bg,
+  );
 
-    final base = ThemeData(
-      colorScheme: scheme,
-      useMaterial3: true,
-      brightness: scheme.brightness,
-      scaffoldBackgroundColor: scaffoldBackground ?? scheme.surface,
-    );
+  final TextTheme textTheme = base.textTheme
+      .apply(bodyColor: p.text, displayColor: p.text)
+      .copyWith(
+        headlineMedium: AppFonts.displayStyle(fontSize: 26, color: p.text),
+        headlineSmall: AppFonts.displayStyle(fontSize: 22, color: p.text),
+        titleLarge: AppFonts.displayStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w700,
+          color: p.text,
+        ),
+      );
 
-    return base.copyWith(
-      appBarTheme: AppBarTheme(
-        backgroundColor: scaffoldBackground ?? scheme.surface,
-        foregroundColor: scheme.onSurface,
-        elevation: appBarElevation,
-        scrolledUnderElevation: appBarElevation,
-        centerTitle: false,
-        titleTextStyle: base.textTheme.titleLarge?.copyWith(
-          fontWeight: titleWeight,
-          color: scheme.onSurface,
+  final RoundedRectangleBorder buttonShape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(p.radiusButton),
+  );
+  final OutlineInputBorder inputBorder = OutlineInputBorder(
+    borderRadius: BorderRadius.circular(p.radiusButton),
+    borderSide: BorderSide.none,
+  );
+
+  return base.copyWith(
+    textTheme: textTheme,
+    extensions: [p],
+    iconTheme: IconThemeData(color: p.icon, weight: 300, fill: 0, size: 24),
+    pageTransitionsTheme: const PageTransitionsTheme(
+      builders: {TargetPlatform.android: _QuickPageTransitionsBuilder()},
+    ),
+    actionIconTheme: ActionIconThemeData(
+      backButtonIconBuilder: (context) =>
+          const Icon(Symbols.arrow_back_rounded),
+    ),
+    appBarTheme: AppBarTheme(
+      backgroundColor: p.bg,
+      foregroundColor: p.text,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      surfaceTintColor: Colors.transparent,
+      centerTitle: false,
+      titleTextStyle: textTheme.titleLarge,
+      iconTheme: IconThemeData(color: p.icon, weight: 300, fill: 0),
+      systemOverlayStyle: systemOverlayFor(p),
+    ),
+    cardTheme: CardThemeData(
+      color: p.surface,
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(p.radiusCard),
+      ),
+      clipBehavior: Clip.antiAlias,
+    ),
+    listTileTheme: ListTileThemeData(
+      iconColor: p.textMuted,
+      textColor: p.text,
+      titleTextStyle: TextStyle(
+        fontFamily: AppFonts.body,
+        fontSize: 15,
+        color: p.text,
+      ),
+      subtitleTextStyle: TextStyle(
+        fontFamily: AppFonts.body,
+        fontSize: 12,
+        height: 1.5,
+        color: p.textMuted,
+      ),
+    ),
+    dividerTheme: DividerThemeData(
+      color: p.border.withValues(alpha: 0.6),
+      thickness: 1,
+      space: 1,
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        backgroundColor: p.accent,
+        foregroundColor: p.onAccent,
+        disabledBackgroundColor: p.track,
+        disabledForegroundColor: p.textFaint,
+        minimumSize: const Size(64, 52),
+        shape: buttonShape,
+        textStyle: const TextStyle(
+          fontFamily: AppFonts.body,
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
         ),
       ),
-      cardTheme: CardThemeData(
-        elevation: cardElevation,
-        color: scheme.surfaceContainerHigh,
-        shadowColor: cardShadowColor ?? scheme.shadow,
-        surfaceTintColor: Colors.transparent,
-        shape: cardShape,
-        clipBehavior: Clip.antiAlias,
-      ),
-      listTileTheme: ListTileThemeData(
-        shape: cardShape,
-        iconColor: scheme.onSurfaceVariant,
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(shape: buttonShape),
-      ),
-      filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(shape: buttonShape),
-      ),
-      outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(shape: buttonShape),
-      ),
-      textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(shape: buttonShape),
-      ),
-      floatingActionButtonTheme: FloatingActionButtonThemeData(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(radius),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: p.text,
+        side: BorderSide(color: p.border),
+        minimumSize: const Size(64, 52),
+        shape: buttonShape,
+        textStyle: const TextStyle(
+          fontFamily: AppFonts.body,
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
         ),
       ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: scheme.surfaceContainerHighest,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(radius),
-          borderSide: BorderSide.none,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(radius),
-          borderSide: BorderSide.none,
-        ),
-      ),
-      dialogTheme: DialogThemeData(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(radius),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        foregroundColor: p.accent,
+        shape: buttonShape,
+        textStyle: const TextStyle(
+          fontFamily: AppFonts.body,
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
         ),
       ),
-      snackBarTheme: SnackBarThemeData(
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(radius),
+    ),
+    iconButtonTheme: IconButtonThemeData(
+      style: IconButton.styleFrom(foregroundColor: p.icon),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: p.surface,
+      labelStyle: TextStyle(color: p.textMuted),
+      hintStyle: TextStyle(color: p.textFaint),
+      prefixIconColor: p.textMuted,
+      border: inputBorder,
+      enabledBorder: inputBorder,
+      disabledBorder: inputBorder,
+      focusedBorder: inputBorder.copyWith(
+        borderSide: BorderSide(color: p.accent, width: 1.5),
+      ),
+    ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: p.surfaceHigh,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      titleTextStyle: textTheme.titleLarge,
+      contentTextStyle: TextStyle(
+        fontFamily: AppFonts.body,
+        fontSize: 14,
+        height: 1.6,
+        color: p.textMuted,
+      ),
+    ),
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: p.surfaceHigh,
+      surfaceTintColor: Colors.transparent,
+      showDragHandle: true,
+      dragHandleColor: p.border,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+    ),
+    popupMenuTheme: PopupMenuThemeData(
+      color: p.surfaceHigh,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      textStyle: TextStyle(
+        fontFamily: AppFonts.body,
+        fontSize: 14,
+        color: p.text,
+      ),
+    ),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: p.surfaceHigh,
+      contentTextStyle: TextStyle(
+        fontFamily: AppFonts.body,
+        fontSize: 13,
+        color: p.text,
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+    ),
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith(
+        (states) =>
+            states.contains(WidgetState.selected) ? p.onAccent : p.textMuted,
+      ),
+      trackColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected) ? p.accent : p.track,
+      ),
+      trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+    ),
+    segmentedButtonTheme: SegmentedButtonThemeData(
+      style: SegmentedButton.styleFrom(
+        foregroundColor: p.textMuted,
+        selectedForegroundColor: p.onAccent,
+        selectedBackgroundColor: p.accent,
+        side: BorderSide(color: p.border),
+        textStyle: const TextStyle(fontFamily: AppFonts.body, fontSize: 13),
+      ),
+    ),
+    progressIndicatorTheme: ProgressIndicatorThemeData(
+      color: p.accent,
+      linearTrackColor: p.track,
+      circularTrackColor: p.track,
+      linearMinHeight: 6,
+      borderRadius: BorderRadius.circular(3),
+    ),
+    sliderTheme: SliderThemeData(
+      activeTrackColor: p.accent,
+      inactiveTrackColor: p.track,
+      thumbColor: p.accent,
+    ),
+  );
+}
+
+/// ステータスバー・ナビゲーションバーのアイコン色を地の明るさに合わせる。
+SystemUiOverlayStyle systemOverlayFor(AppPalette p) {
+  final SystemUiOverlayStyle base = p.isDark
+      ? SystemUiOverlayStyle.light
+      : SystemUiOverlayStyle.dark;
+  return base.copyWith(
+    statusBarColor: Colors.transparent,
+    systemNavigationBarColor: Colors.transparent,
+    systemNavigationBarDividerColor: Colors.transparent,
+  );
+}
+
+/// 画面の切り替え。新しい画面が右から滑り込み、前の画面は少し左へずれて暗くなる。
+///
+/// Android 標準(FadeForwards)は両方の画面を半透明にして重ねるため、毎フレーム
+/// 画面2枚分の重ね描きが要り、すりガラスと合わせると出だしが引っかかる。
+/// ここでは不透明のまま動かすだけにして描く量を抑え、動き出しも速くする
+/// (標準の曲線は出だしがゆっくりで、押してから反応が遅く見える)。
+class _QuickPageTransitionsBuilder extends PageTransitionsBuilder {
+  const _QuickPageTransitionsBuilder();
+
+  static const Offset _behindOffset = Offset(-0.3, 0);
+  static const double _behindDim = 0.35;
+
+  @override
+  Duration get transitionDuration => const Duration(milliseconds: 280);
+
+  @override
+  DelegatedTransitionBuilder? get delegatedTransition => null;
+
+  /// 進むときは速く動き出して止まり、戻るときも速く動き出す。
+  static Curve _curveFor(Animation<double> animation) =>
+      animation.status == AnimationStatus.reverse
+      ? Curves.easeInCubic
+      : Curves.easeOutCubic;
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    // ルートのアニメーションが進むたびに呼ばれるので、値から直接組み立てる
+    final double shown = animation.isCompleted
+        ? 1
+        : _curveFor(animation).transform(animation.value);
+    final double covered = secondaryAnimation.isDismissed
+        ? 0
+        : _curveFor(secondaryAnimation).transform(secondaryAnimation.value);
+    return FractionalTranslation(
+      translation: Offset(1 - shown, 0) + _behindOffset * covered,
+      child: DecoratedBox(
+        position: DecorationPosition.foreground,
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: _behindDim * covered),
         ),
+        child: child,
       ),
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // クラシック (これまでの Material3 teal)
-  // ---------------------------------------------------------------------------
-
-  static AppThemeData _classic() {
-    const seed = Color(0xFF00897B);
-    final lightScheme = ColorScheme.fromSeed(seedColor: seed);
-    final darkScheme = ColorScheme.fromSeed(
-      seedColor: seed,
-      brightness: Brightness.dark,
-    );
-    return AppThemeData(
-      id: AppThemeId.classic,
-      label: 'クラシック',
-      description: 'これまでの Material 3 / ティールカラー',
-      icon: Icons.water_drop_outlined,
-      light: ThemeData(colorScheme: lightScheme, useMaterial3: true),
-      dark: ThemeData(colorScheme: darkScheme, useMaterial3: true),
-      previewBackground: lightScheme.surface,
-      previewPrimary: lightScheme.primary,
-      previewSurface: lightScheme.surfaceContainerHigh,
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // ニューモフィズム (やわらかいモノトーン)
-  // ---------------------------------------------------------------------------
-
-  static AppThemeData _neumorphism() {
-    // ライト: 定番のグレーブルー地。要素と背景の色差を小さくして陰影で表現する。
-    const lightBg = Color(0xFFE0E5EC);
-    final lightScheme =
-        ColorScheme.fromSeed(
-          seedColor: const Color(0xFF5B7089),
-          brightness: Brightness.light,
-        ).copyWith(
-          surface: lightBg,
-          surfaceContainerLowest: const Color(0xFFEAEEF4),
-          surfaceContainerLow: const Color(0xFFE4E9F0),
-          surfaceContainer: lightBg,
-          surfaceContainerHigh: const Color(0xFFDAE0E8),
-          surfaceContainerHighest: const Color(0xFFD3D9E1),
-          onSurface: const Color(0xFF44505F),
-          onSurfaceVariant: const Color(0xFF6B7787),
-          shadow: const Color(0xFFA3B1C6),
-        );
-
-    const darkBg = Color(0xFF2C313A);
-    final darkScheme =
-        ColorScheme.fromSeed(
-          seedColor: const Color(0xFF8FA3BC),
-          brightness: Brightness.dark,
-        ).copyWith(
-          surface: darkBg,
-          surfaceContainerLowest: const Color(0xFF252A32),
-          surfaceContainerLow: const Color(0xFF2C313A),
-          surfaceContainer: darkBg,
-          surfaceContainerHigh: const Color(0xFF333944),
-          surfaceContainerHighest: const Color(0xFF3B424E),
-          onSurface: const Color(0xFFD3D9E1),
-          shadow: Colors.black,
-        );
-
-    return AppThemeData(
-      id: AppThemeId.neumorphism,
-      label: 'ニューモフィズム',
-      description: 'やわらかい陰影のモノトーンデザイン',
-      icon: Icons.blur_on,
-      light: _build(
-        scheme: lightScheme,
-        radius: 20,
-        pillButtons: false,
-        scaffoldBackground: lightBg,
-        cardElevation: 6,
-        cardShadowColor: const Color(0xFFA3B1C6),
-        titleWeight: FontWeight.w600,
-      ),
-      dark: _build(
-        scheme: darkScheme,
-        radius: 20,
-        pillButtons: false,
-        scaffoldBackground: darkBg,
-        cardElevation: 6,
-        cardShadowColor: Colors.black,
-        titleWeight: FontWeight.w600,
-      ),
-      previewBackground: lightBg,
-      previewPrimary: const Color(0xFF5B7089),
-      previewSurface: const Color(0xFFDAE0E8),
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // モダン (高コントラスト・ビビッドアクセント・丸みのあるピル)
-  // ---------------------------------------------------------------------------
-
-  static AppThemeData _modern() {
-    const accent = Color(0xFF8B5CF6); // violet
-    const accent2 = Color(0xFFEC4899); // pink
-
-    final darkScheme =
-        ColorScheme.fromSeed(
-          seedColor: accent,
-          brightness: Brightness.dark,
-        ).copyWith(
-          primary: accent,
-          secondary: accent2,
-          surface: const Color(0xFF0F0F14),
-          surfaceContainerLowest: const Color(0xFF09090C),
-          surfaceContainerLow: const Color(0xFF141419),
-          surfaceContainer: const Color(0xFF1A1A21),
-          surfaceContainerHigh: const Color(0xFF22222B),
-          surfaceContainerHighest: const Color(0xFF2B2B36),
-          onSurface: const Color(0xFFF2F2F7),
-        );
-
-    final lightScheme =
-        ColorScheme.fromSeed(
-          seedColor: accent,
-          brightness: Brightness.light,
-        ).copyWith(
-          primary: accent,
-          secondary: accent2,
-          surface: const Color(0xFFFAFAFE),
-          surfaceContainerHigh: Colors.white,
-        );
-
-    return AppThemeData(
-      id: AppThemeId.modern,
-      label: 'モダン',
-      description: '高コントラスト・ビビッドな今風デザイン',
-      icon: Icons.auto_awesome,
-      light: _build(
-        scheme: lightScheme,
-        radius: 18,
-        pillButtons: true,
-        cardElevation: 2,
-        titleWeight: FontWeight.w700,
-      ),
-      dark: _build(
-        scheme: darkScheme,
-        radius: 18,
-        pillButtons: true,
-        scaffoldBackground: const Color(0xFF0F0F14),
-        cardElevation: 0,
-        titleWeight: FontWeight.w700,
-      ),
-      previewBackground: const Color(0xFF0F0F14),
-      previewPrimary: accent,
-      previewSurface: const Color(0xFF22222B),
     );
   }
 }

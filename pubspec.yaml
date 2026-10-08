@@ -40,6 +40,7 @@ dependencies:
   just_audio: ^0.10.5
   just_audio_background: ^0.0.1-beta.17
   path_provider: ^2.1.5
+  material_symbols_icons: ^4.2960.0
 
 dev_dependencies:
   flutter_test:
@@ -73,10 +74,37 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
-  # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
-  #   - images/a_dot_ham.jpeg
+  # 書体のライセンス(OFL)。アプリ内のライセンス表示に載せる。
+  assets:
+    - assets/fonts/LINESeedJP-OFL.txt
+    - assets/fonts/Murecho-OFL.txt
+    - assets/fonts/GeistMono-OFL.txt
+
+  # 見出し・曲名・ロゴ = LINE Seed JP、本文 = Murecho、数字 = Geist Mono。
+  # Murecho と Geist Mono は可変フォントから太さごとに切り出したもの。
+  fonts:
+    - family: LINESeedJP
+      fonts:
+        - asset: assets/fonts/LINESeedJP-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/LINESeedJP-ExtraBold.ttf
+          weight: 800
+    - family: Murecho
+      fonts:
+        - asset: assets/fonts/Murecho-400.ttf
+          weight: 400
+        - asset: assets/fonts/Murecho-500.ttf
+          weight: 500
+        - asset: assets/fonts/Murecho-600.ttf
+          weight: 600
+        - asset: assets/fonts/Murecho-700.ttf
+          weight: 700
+    - family: GeistMono
+      fonts:
+        - asset: assets/fonts/GeistMono-400.ttf
+          weight: 400
+        - asset: assets/fonts/GeistMono-500.ttf
+          weight: 500
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

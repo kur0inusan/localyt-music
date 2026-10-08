@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:localyt_music/services/file_service.dart';
+import 'package:localyt_music/services/library_events.dart';
 import 'package:localyt_music/services/yt_dl_service.dart';
 import 'package:localyt_music/widgets/storage_permission_dialog.dart';
 
@@ -124,6 +126,7 @@ class _PlaylistEditScreenState extends State<PlaylistEditScreen> {
 
     try {
       await _playlistsManager.renamePlaylist(widget.playlistName, newName);
+      LibraryEvents.instance.notifyChanged();
       if (!mounted) return;
       _showSnackBar('プレイリスト名を変更しました');
       Navigator.pop(context, true);
@@ -179,6 +182,7 @@ class _PlaylistEditScreenState extends State<PlaylistEditScreen> {
 
     try {
       await _playlistsManager.deletePlaylist(widget.playlistName);
+      LibraryEvents.instance.notifyChanged();
       if (!mounted) return;
       _showSnackBar('プレイリストを削除しました');
       Navigator.pop(context, true);
@@ -211,6 +215,7 @@ class _PlaylistEditScreenState extends State<PlaylistEditScreen> {
         widget.playlistName,
         isUpdate: true,
       );
+      LibraryEvents.instance.notifyChanged();
       if (!mounted) return;
       setState(() {
         _isSaving = false;
@@ -234,8 +239,9 @@ class _PlaylistEditScreenState extends State<PlaylistEditScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('プレイリストを編集')),
+      // URL の読み込みはすぐ終わるので、回転を出してちらつかせない
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const SizedBox.shrink()
           : SingleChildScrollView(
               padding: const EdgeInsets.all(20),
               child: Form(
@@ -248,8 +254,7 @@ class _PlaylistEditScreenState extends State<PlaylistEditScreen> {
                       enabled: !_isSaving,
                       decoration: const InputDecoration(
                         labelText: 'プレイリスト名',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.folder),
+                        prefixIcon: Icon(Symbols.folder_rounded),
                       ),
                       validator: _validatePlaylistName,
                     ),
@@ -261,16 +266,12 @@ class _PlaylistEditScreenState extends State<PlaylistEditScreen> {
                       enabled: false,
                       decoration: const InputDecoration(
                         labelText: 'プレイリストURL',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.link),
+                        prefixIcon: Icon(Symbols.link_rounded),
                       ),
                     ),
                     const SizedBox(height: 28),
                     if (_isUpdating || _progress > 0.0) ...[
-                      LinearProgressIndicator(
-                        value: _progress / 100.0,
-                        minHeight: 8,
-                      ),
+                      LinearProgressIndicator(value: _progress / 100.0),
                       const SizedBox(height: 12),
                       Text(
                         _statusText,
@@ -279,7 +280,7 @@ class _PlaylistEditScreenState extends State<PlaylistEditScreen> {
                       ),
                       const SizedBox(height: 20),
                     ],
-                    ElevatedButton.icon(
+                    FilledButton.icon(
                       onPressed: _isSaving ? null : _renamePlaylist,
                       icon: _isSaving
                           ? const SizedBox(
@@ -287,30 +288,27 @@ class _PlaylistEditScreenState extends State<PlaylistEditScreen> {
                               height: 20,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Icon(Icons.drive_file_rename_outline),
+                          : const Icon(
+                              Symbols.drive_file_rename_outline_rounded,
+                            ),
                       label: const Text('名前を変更'),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
                     ),
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
                       onPressed: _isSaving ? null : _updatePlaylist,
-                      icon: const Icon(Icons.sync),
-                      label: const Text('更新'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
+                      icon: const Icon(Symbols.sync_rounded),
+                      label: const Text('新しい曲を取得'),
                     ),
                     const SizedBox(height: 24),
-                    FilledButton.icon(
+                    OutlinedButton.icon(
                       onPressed: _isSaving ? null : _deletePlaylist,
-                      icon: const Icon(Icons.delete),
-                      label: const Text('削除'),
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        backgroundColor: Theme.of(context).colorScheme.error,
-                        foregroundColor: Theme.of(context).colorScheme.onError,
+                      icon: const Icon(Symbols.delete_rounded),
+                      label: const Text('プレイリストを削除'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Theme.of(context).colorScheme.error,
+                        side: BorderSide(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
                       ),
                     ),
                   ],
